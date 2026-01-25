@@ -105,6 +105,7 @@ User
 - `conversation_participants` - Who's in each conversation
 - `messages` - Raw content + AI-processed content
 - `message_reads` - Read receipts
+- `agent_context` - Historical context for AI mediation (session logs, decisions, background)
 
 Schema: `backend/database/schema.sql`
 

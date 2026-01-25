@@ -173,6 +173,30 @@ CREATE POLICY "Send messages to your conversations"
     );
 
 -- ============================================
+-- AGENT CONTEXT
+-- Historical context the AI agent can reference for mediation
+-- ============================================
+CREATE TABLE agent_context (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    context_type TEXT NOT NULL,  -- 'session_log', 'decision', 'background', 'communication'
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    participants TEXT[],          -- Who was involved
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB                -- Flexible extra data
+);
+
+CREATE INDEX idx_agent_context_type ON agent_context(context_type);
+CREATE INDEX idx_agent_context_created ON agent_context(created_at DESC);
+
+ALTER TABLE agent_context ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Agent context is readable"
+    ON agent_context FOR SELECT
+    TO authenticated
+    USING (true);
+
+-- ============================================
 -- REALTIME
 -- Enable realtime for messages (Supabase feature)
 -- ============================================
