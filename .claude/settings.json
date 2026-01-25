@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift build:*)",
+      "Bash(swift:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(git:*)",
+      "Bash(ls:*)",
+      "Bash(open:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true
+  }
+}
