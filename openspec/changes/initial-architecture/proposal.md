@@ -82,6 +82,18 @@ User
 #### AI
 - **Claude API** - agreed
 
+#### MCP Integrations (Development Tooling)
+
+We've added MCP (Model Context Protocol) server configs from [everything-claude-code](https://github.com/affaan-m/everything-claude-code):
+
+| MCP Server | Purpose |
+|------------|---------|
+| **github** | Claude Code can read/write GitHub issues, PRs, repos directly. Enables the "app talks to GitHub" feature. |
+| **supabase** | If we choose Supabase, Claude Code can interact with the DB directly during development. |
+| **memory** | Persistent memory across Claude Code sessions - useful for maintaining context. |
+
+See `.claude/mcp-configs/async-servers.json` for setup instructions.
+
 ### MVP Candidates
 
 Two options for first feature:

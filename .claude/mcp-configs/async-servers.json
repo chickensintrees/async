@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_PAT_HERE"
+      },
+      "description": "GitHub operations - PRs, issues, repos. Used for async app to read/write GitHub."
+    },
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@supabase/mcp-server-supabase@latest", "--project-ref=YOUR_PROJECT_REF"],
+      "description": "Supabase database operations. Backend for message storage."
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "description": "Persistent memory across sessions. Useful for agent context."
+    }
+  },
+  "_comments": {
+    "setup": "Copy desired servers to your ~/.claude.json mcpServers section",
+    "github_pat": "Create a PAT at https://github.com/settings/tokens with repo scope",
+    "supabase_ref": "Get project ref from Supabase dashboard URL"
+  }
+}
