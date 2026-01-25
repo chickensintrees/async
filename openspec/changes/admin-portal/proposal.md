@@ -269,4 +269,4 @@ ADD COLUMN can_view_raw BOOLEAN DEFAULT FALSE;
 
 ---
 
-**Discussion: GitHub Issue TBD**
+**Discussion: [GitHub Issue #11](https://github.com/chickensintrees/async/issues/11)**
