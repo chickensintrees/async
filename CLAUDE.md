@@ -93,12 +93,20 @@ User
 ## Technology Stack
 
 - **Client**: SwiftUI (native macOS app)
-- **Backend**: TBD - considering:
-  - SQLite (local, simple, but sync is hard)
-  - GitHub repo files (already have access, but clunky)
-  - Supabase/Firebase (real backend, free tier)
-  - CloudKit (Apple-native, but Apple-only)
+- **Backend**: Supabase (Postgres)
+  - Project: `ujokdwgpwruyiuioseir`
+  - Dashboard: https://supabase.com/dashboard/project/ujokdwgpwruyiuioseir
+  - Credentials in `backend/.env.local` (gitignored)
 - **AI**: Claude API for message processing
+
+### Database Tables (Live)
+- `users` - User profiles linked to GitHub
+- `conversations` - Chat threads with mode (anonymous/assisted/direct)
+- `conversation_participants` - Who's in each conversation
+- `messages` - Raw content + AI-processed content
+- `message_reads` - Read receipts
+
+Schema: `backend/database/schema.sql`
 
 ## Repository Structure
 
@@ -139,7 +147,7 @@ async/
 
 ## Open Questions
 
-- [ ] Database choice - local vs. cloud vs. GitHub-as-backend?
+- [x] Database choice - **Supabase (Postgres)** ✓
 - [ ] Does the AI have autonomy to respond, or always queues for human approval?
 - [ ] Same app for both parties, or different UX per role?
 - [ ] What's the authentication/identity model?

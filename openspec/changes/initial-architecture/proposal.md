@@ -1,6 +1,6 @@
 # Proposal: Initial Architecture
 
-**Status**: Draft - Awaiting Collaborator Input
+**Status**: Partially Implemented - Database Live, Awaiting Input on Remaining Questions
 **Author**: Bill (chickensintrees)
 **Date**: 2026-01-25
 
@@ -77,7 +77,11 @@ User
 | Firebase | Real-time sync, mature | Google dependency |
 | CloudKit | Apple-native | Apple-only, complex |
 
-**Recommendation**: Start with Supabase. Real backend, real-time subscriptions, generous free tier, easy auth.
+**Decision**: ✅ **Supabase** - Implemented and live.
+- Project ref: `ujokdwgpwruyiuioseir`
+- Dashboard: https://supabase.com/dashboard/project/ujokdwgpwruyiuioseir
+- Schema: `backend/database/schema.sql`
+- All tables created: users, conversations, conversation_participants, messages, message_reads
 
 #### AI
 - **Claude API** - agreed
@@ -115,7 +119,7 @@ Two options for first feature:
 
 ## Open Questions
 
-1. Which database/backend should we use?
+1. ~~Which database/backend should we use?~~ ✅ **Supabase**
 2. First feature: AI processing or user sync?
 3. Should we start with just one communication mode (assisted) for simplicity?
 4. Auth: GitHub OAuth? Apple Sign-In? Both?
