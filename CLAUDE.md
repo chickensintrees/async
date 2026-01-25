@@ -120,9 +120,51 @@ async/
 │   ├── AGENTS.md       # Instructions for AI agents
 │   ├── specs/          # Current specifications
 │   └── changes/        # Proposed changes
+├── dashboard/          # GitHub monitoring dashboard (SwiftUI)
+│   ├── Package.swift
+│   ├── Sources/AsyncDashboard.swift
+│   └── scripts/        # start-dashboard.sh, install.sh
 ├── app/                # SwiftUI application (future)
 └── backend/            # Backend service (future)
 ```
+
+## Dashboard (Live)
+
+A native macOS app for monitoring the repo and tracking developer contributions.
+
+### Running the Dashboard
+```bash
+cd dashboard
+./scripts/install.sh      # First time only
+./scripts/start-dashboard.sh
+```
+
+### Features
+- **Activity Feed**: Real-time repo events (commits, issues, PRs)
+- **Leaderboard**: Competitive scoring between Bill and Noah
+- **AI Commentary**: Claude-powered trash talk via "Request Fresh Roast" button
+
+### Gamification Scoring
+| Action | Points |
+|--------|--------|
+| Commit with tests | +50 |
+| Small commit (<50 lines) | +10 |
+| PR merged | +100 |
+| **Breaking CI** | **-100** |
+| Untested code dump (>300 lines) | -75 |
+| Lazy commit message | -15 |
+
+### Titles (Score-Based)
+- 0-99: Keyboard Polisher
+- 100-299: Bug Whisperer
+- 1000-1999: Pull Request Paladin
+- 4000-7499: Test Titan
+- 15000+: Code Demigod
+
+### Shame Titles
+- "Build Breaker" - 3+ CI failures
+- "YOLO Developer" - No tests in 5+ commits
+- "Benchwarmer" - Lowest weekly score
 
 ## Development Workflow
 
