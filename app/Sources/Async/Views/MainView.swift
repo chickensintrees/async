@@ -157,6 +157,43 @@ struct ConversationListPanel: View {
     }
 }
 
+// MARK: - Conversation Row
+
+struct ConversationRow: View {
+    let conversation: Conversation
+
+    var body: some View {
+        HStack {
+            modeIcon
+                .foregroundColor(modeColor)
+            VStack(alignment: .leading) {
+                Text(conversation.displayTitle)
+                    .font(.headline)
+                Text(conversation.mode.displayName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    var modeIcon: Image {
+        switch conversation.mode {
+        case .anonymous: return Image(systemName: "eye.slash")
+        case .assisted: return Image(systemName: "person.2.wave.2")
+        case .direct: return Image(systemName: "arrow.left.arrow.right")
+        }
+    }
+
+    var modeColor: Color {
+        switch conversation.mode {
+        case .anonymous: return .purple
+        case .assisted: return .blue
+        case .direct: return .green
+        }
+    }
+}
+
 struct MessagesWelcomeView: View {
     @EnvironmentObject var appState: AppState
 
