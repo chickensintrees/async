@@ -1,0 +1,107 @@
+{
+  "meta": {
+    "version": "1.0",
+    "description": "Value-based metrics for Thunderdome. Commits are vanity. Shipped value is sanity."
+  },
+  "philosophy": {
+    "core_principle": "Measure delivered value, not activity",
+    "anti_patterns": [
+      "Commit count (could be junk)",
+      "Lines of code (more is often worse)",
+      "Hours worked (effort != output)"
+    ],
+    "true_signals": [
+      "Working features users can touch",
+      "Problems solved (issues closed)",
+      "Quality gates passed (tests, reviews)",
+      "Design clarity (specs that prevent bugs)"
+    ]
+  },
+  "scoring": {
+    "delivered_value": {
+      "pr_merged": {
+        "points": 100,
+        "why": "Code reviewed, tested, and accepted by the team"
+      },
+      "issue_closed": {
+        "points": 50,
+        "why": "A problem was solved, not just worked on"
+      },
+      "spec_approved": {
+        "points": 75,
+        "why": "Design work that prevents future bugs and rework"
+      },
+      "feature_demo": {
+        "points": 150,
+        "why": "Something you can show to a user"
+      },
+      "test_coverage_increase": {
+        "points": 25,
+        "per": "percentage point",
+        "why": "Quality investment that pays dividends"
+      }
+    },
+    "quality_signals": {
+      "pr_with_tests": {
+        "multiplier": 1.5,
+        "why": "Proves it works, not just compiles"
+      },
+      "small_focused_pr": {
+        "multiplier": 1.2,
+        "threshold": "under 200 lines",
+        "why": "Easier to review, less risk"
+      },
+      "spec_before_code": {
+        "multiplier": 1.3,
+        "why": "Thinking before typing"
+      }
+    },
+    "penalties": {
+      "pr_rejected": {
+        "points": -50,
+        "why": "Work that didn't meet the bar"
+      },
+      "bug_introduced": {
+        "points": -75,
+        "why": "Net negative value"
+      },
+      "revert_needed": {
+        "points": -100,
+        "why": "Shipped something broken"
+      },
+      "stale_branch": {
+        "points": -10,
+        "per": "week stale",
+        "why": "Abandoned work = wasted effort"
+      }
+    },
+    "activity_vs_value": {
+      "commits_without_pr": {
+        "points": 0,
+        "note": "Activity, not delivery. Doesn't count until merged."
+      },
+      "wip_branches": {
+        "points": 0,
+        "note": "Potential value, not realized value."
+      }
+    }
+  },
+  "leaderboard_philosophy": {
+    "what_we_celebrate": [
+      "Shipped features",
+      "Closed issues",
+      "Quality contributions",
+      "Specs that prevent problems"
+    ],
+    "what_we_acknowledge": [
+      "Infrastructure work (enables future value)",
+      "Spec work (prevents future waste)",
+      "Review work (quality gate)"
+    ],
+    "commentary_notes": {
+      "high_commits_low_merges": "Bill's been busy, but the commit log doesn't equal the scoreboard. Until those PRs merge, it's all potential energy.",
+      "low_commits_high_impact": "Noah played it quiet, but that spec he shipped? That's preventing three weeks of rework. The smart money sees it.",
+      "balanced": "Both devs bringing different value. The shaman and the professional, each playing their game."
+    }
+  }
+}

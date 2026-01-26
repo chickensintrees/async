@@ -28,21 +28,35 @@ enum ConversationMode: String, Codable, CaseIterable {
 
 struct User: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
-    let githubHandle: String?
-    let displayName: String
-    let email: String?
-    let avatarUrl: String?
+    var githubHandle: String?
+    var displayName: String
+    var email: String?
+    var phoneNumber: String?
+    var avatarUrl: String?
     let createdAt: Date
-    let updatedAt: Date
+    var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
         case id
         case githubHandle = "github_handle"
         case displayName = "display_name"
         case email
+        case phoneNumber = "phone_number"
         case avatarUrl = "avatar_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+
+    var formattedPhone: String? {
+        guard let phone = phoneNumber else { return nil }
+        // Format: +1 (412) 512-3593
+        if phone.count == 12 && phone.hasPrefix("+1") {
+            let area = phone.dropFirst(2).prefix(3)
+            let first = phone.dropFirst(5).prefix(3)
+            let last = phone.suffix(4)
+            return "+1 (\(area)) \(first)-\(last)"
+        }
+        return phone
     }
 }
 

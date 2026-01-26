@@ -3,12 +3,16 @@ import SwiftUI
 @main
 struct AsyncApp: App {
     @StateObject private var appState = AppState()
+    @StateObject private var dashboardVM = DashboardViewModel()
+    @StateObject private var gameVM = GamificationViewModel()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainView()
                 .environmentObject(appState)
-                .frame(minWidth: 800, minHeight: 600)
+                .environmentObject(dashboardVM)
+                .environmentObject(gameVM)
+                .frame(minWidth: 1100, minHeight: 700)
         }
         .windowStyle(.titleBar)
         .commands {
@@ -21,22 +25,31 @@ struct AsyncApp: App {
             }
 
             // View Menu
-            CommandMenu("Conversations") {
-                Button("Refresh") {
-                    Task {
-                        await appState.loadConversations()
-                    }
+            CommandMenu("View") {
+                Button("Messages") {
+                    appState.selectedTab = .messages
                 }
-                .keyboardShortcut("r", modifiers: .command)
+                .keyboardShortcut("1", modifiers: .command)
+
+                Button("Dashboard") {
+                    appState.selectedTab = .dashboard
+                }
+                .keyboardShortcut("2", modifiers: .command)
+
+                Button("Backlog") {
+                    appState.selectedTab = .backlog
+                }
+                .keyboardShortcut("3", modifiers: .command)
 
                 Divider()
 
-                Button("Show All") {
-                    appState.filterMode = .all
+                Button("Refresh All") {
+                    Task {
+                        await appState.loadConversations()
+                        await dashboardVM.refreshAll()
+                    }
                 }
-                Button("Show Unread") {
-                    appState.filterMode = .unread
-                }
+                .keyboardShortcut("r", modifiers: .command)
 
                 Divider()
 
@@ -46,7 +59,7 @@ struct AsyncApp: App {
                 .keyboardShortcut("a", modifiers: [.command, .shift])
             }
 
-            // Help menu addition
+            // Help menu
             CommandGroup(replacing: .help) {
                 Button("Async Help") {
                     appState.showHelp = true
@@ -55,8 +68,10 @@ struct AsyncApp: App {
         }
 
         Settings {
-            SettingsView()
+            UnifiedSettingsView()
                 .environmentObject(appState)
+                .environmentObject(dashboardVM)
+                .environmentObject(gameVM)
         }
     }
 }

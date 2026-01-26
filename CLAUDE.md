@@ -29,7 +29,7 @@ The AI doesn't just pass messages through - it adds value by summarizing, adjust
 
 ## Dogfooding Strategy
 
-Once MVP is working, Bill (chickensintrees) and ginzatron will use Async to coordinate development of Async itself. This gives us:
+Once MVP is working, chickensintrees and ginzatron will use Async to coordinate development of Async itself. This gives us:
 - Real usage data from day one
 - Immediate feedback on friction points
 - Proof of concept for other use cases
@@ -124,8 +124,17 @@ async/
 │   ├── Package.swift
 │   ├── Sources/AsyncDashboard.swift
 │   └── scripts/        # start-dashboard.sh, install.sh
-├── app/                # SwiftUI application (future)
-└── backend/            # Backend service (future)
+├── scripts/
+│   └── sms-context.sh  # Query shared SMS conversation for Claude Code sync
+├── backend/
+│   ├── database/
+│   │   ├── schema.sql              # Core database schema
+│   │   └── migrations/             # Database migrations
+│   │       └── 001_sms_support.sql # SMS/Twilio support
+│   └── supabase/
+│       └── functions/
+│           └── sms-webhook/        # Twilio webhook Edge Function
+└── app/                # SwiftUI application (future)
 ```
 
 ## Dashboard (Live)
@@ -141,7 +150,7 @@ cd dashboard
 
 ### Features
 - **Activity Feed**: Real-time repo events (commits, issues, PRs)
-- **Leaderboard**: Competitive scoring between Bill and Noah
+- **Leaderboard**: Competitive scoring between chickensintrees and ginzatron
 - **AI Commentary**: Claude-powered trash talk via "Request Fresh Roast" button
 
 ### Gamification Scoring
@@ -175,10 +184,193 @@ cd dashboard
 4. **Update specs** - Archive completed changes to specs/
 
 ### Collaboration
-- Bill (chickensintrees) and ginzatron are collaborating on this project
+- chickensintrees and ginzatron are collaborating on this project
 - Use GitHub Issues for discussion and tracking
 - PRs require review before merge
 - Major decisions documented in openspec/
+
+## AI-Managed Code Review & Merging
+
+**IMPORTANT FOR ALL CLAUDE CODE INSTANCES**: The AI (STEF/Claude) manages all code review and merging for this project. This applies whether you're working with chickensintrees or ginzatron.
+
+### Branch Strategy
+- `main` - Production-ready code
+- `feature/*` - Feature branches (e.g., `feature/admin-portal`)
+- All feature work happens on branches, merged via PR
+
+### Workflow for BOTH Contributors
+
+#### When Your Human Writes Code:
+1. **Create a feature branch** if working on something substantial
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+2. **Commit with good messages** (affects gamification score!)
+3. **Push to origin** when ready for review
+   ```bash
+   git push -u origin feature/your-feature-name
+   ```
+4. **Tell the AI to create a PR** or create one yourself
+
+#### When AI Reviews Code:
+The AI (you, reading this) should:
+1. **Fetch the PR/branch**
+   ```bash
+   gh pr list
+   gh pr view <number>
+   gh pr diff <number>
+   ```
+2. **Review for**:
+   - Code quality and style consistency
+   - Test coverage (remember: untested code = negative points!)
+   - Security issues (OWASP top 10)
+   - Spec compliance (check `openspec/specs/`)
+3. **Leave comments** on the PR
+   ```bash
+   gh pr comment <number> --body "Review comments here"
+   ```
+4. **Approve or request changes**
+   ```bash
+   gh pr review <number> --approve --body "LGTM"
+   gh pr review <number> --request-changes --body "Please fix X"
+   ```
+
+#### When AI Merges Code:
+Once approved:
+```bash
+# Merge with merge commit (preserves history)
+gh pr merge <number> --merge
+
+# Or squash (cleaner history for small PRs)
+gh pr merge <number> --squash
+
+# Delete the branch after merge
+gh pr merge <number> --merge --delete-branch
+```
+
+### Conflict Resolution
+If there are merge conflicts:
+1. **Notify the human** about the conflict
+2. **Fetch latest main** into the feature branch
+   ```bash
+   git fetch origin
+   git checkout feature/branch-name
+   git merge origin/main
+   ```
+3. **Resolve conflicts** (with human guidance if needed)
+4. **Push the resolution**
+5. **Complete the merge**
+
+### Cross-Contributor Sync
+When chickensintrees pushes to main and ginzatron has a feature branch (or vice versa):
+1. AI should **proactively check for divergence**
+2. **Notify the other contributor** if their branch is behind
+3. **Suggest rebasing or merging** main into their branch
+
+### PR Checklist (AI Should Verify)
+- [ ] Code compiles/builds
+- [ ] Tests pass (run `swift test` for app/)
+- [ ] No secrets committed
+- [ ] Commit messages are descriptive
+- [ ] Related issue linked (if applicable)
+- [ ] Spec updated (if behavior changed)
+
+## Protocol Thunderdome (Scrum Master Routine)
+
+STEF acts as AI scrum master for this project. When chickensintrees says **"Protocol Thunderdome"** or **"run scrum"**, execute this routine:
+
+### 1. Fetch Current State
+```bash
+# Recent commits (all contributors)
+gh api repos/chickensintrees/async/commits --jq '.[:15] | .[] | "\(.sha[0:7]) \(.author.login): \(.commit.message | split("\n")[0])"'
+
+# Recent activity
+gh api repos/chickensintrees/async/events --jq '.[:10] | .[] | "\(.created_at | split("T")[0]) \(.actor.login): \(.type)"'
+
+# Open issues
+gh api repos/chickensintrees/async/issues --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
+
+# Latest comments
+gh api repos/chickensintrees/async/issues/comments --jq '.[-5:] | .[] | "Issue #\(.issue_url | split("/") | last) - \(.user.login): \(.body | split("\n")[0])"'
+
+# Check all branches for contributor activity
+gh api repos/chickensintrees/async/branches --jq '.[].name'
+```
+
+### 2. Calculate Scores
+Using the gamification scoring system:
+- +50 for commits with tests
+- +10 for small commits (<50 lines)
+- +100 for merged PRs
+- -100 for breaking CI
+- -75 for untested code dumps (>300 lines)
+- -15 for lazy commit messages
+
+### 3. Generate Report
+Output a status report with:
+- **Leaderboard** - Scores and titles for chickensintrees & ginzatron
+- **Recent Activity** - Who did what
+- **Backlog** - Prioritized issue list
+- **Blockers** - Anything blocking progress
+- **Recommended Actions** - Next steps
+
+### 4. Identify Action Items
+- Specs needing review
+- PRs waiting for merge
+- Issues needing response
+- Tests to write
+- **Documentation to update**
+
+### 5. Documentation Check
+Verify these files reflect reality:
+- `README.md` - Tech stack, features, repo structure
+- `CLAUDE.md` - Project state, workflows, open questions
+- `openspec/project.md` - Tech stack, file locations
+- `openspec/AGENTS.md` - Current domains, protocols
+- `backend/database/README.md` - Tables, migrations
+
+If any doc is outdated, update it before ending the session.
+
+## Debrief Protocol (End of Session)
+
+When user says **"debrief"**, **"end session"**, or **"save and quit"**:
+
+### 1. Commit All Changes
+```bash
+git status
+git add -A
+git commit -m "Session: brief description of work done"
+git push origin main
+```
+
+### 2. Documentation Review
+Check and update ALL documentation to reflect any changes made:
+- Did we add new features? → Update README.md
+- Did we change architecture? → Update CLAUDE.md, openspec/project.md
+- Did we add database tables/migrations? → Update backend/database/README.md
+- Did we change workflows? → Update openspec/AGENTS.md, specs/
+
+**GitHub is the single source of truth. All docs must reflect reality.**
+
+### 3. Run Thunderdome
+```bash
+./scripts/thunderdome.sh
+```
+
+### 4. Create Session Log
+Write a session log to `~/.claude/session-logs/YYYY-MM-DD-topic.md` with:
+- What happened
+- What was built/changed
+- Current status
+- Next steps
+- Files changed
+
+### 5. Confirm Safe to Close
+Verify:
+- [ ] All changes committed and pushed
+- [ ] Documentation updated
+- [ ] Thunderdome shows clean status
+- [ ] Session log created
 
 ## Design Principles
 
@@ -188,10 +380,34 @@ cd dashboard
 4. **Native experience** - SwiftUI for polished macOS feel
 5. **Dogfood early** - Use the tool to build the tool
 
+## SMS Group Chat (STEF Integration)
+
+Bill and Noah can communicate via SMS with STEF as a participant. Both Claude Code instances share context through Supabase.
+
+### How It Works
+1. SMS messages go to Twilio → Edge Function → Supabase
+2. When @STEF is mentioned, Claude API generates a response
+3. Response sent back via Twilio SMS to all participants
+4. Both Bill's and Noah's Claude Code can query the shared conversation
+
+### Sync Context (For Claude Code)
+```bash
+./scripts/sms-context.sh      # Fetch last 50 messages
+./scripts/sms-context.sh 100  # Fetch last 100 messages
+```
+
+### Trigger STEF Response
+- `@stef` or `stef` (as a word)
+- `@claude`
+- `hey stef`
+
+### Setup
+See `backend/supabase/functions/sms-webhook/README.md` for full setup instructions.
+
 ## Open Questions
 
 - [x] Database choice - **Supabase (Postgres)** ✓
+- [x] First feature to build - **SMS Group Chat with STEF** ✓
 - [ ] Does the AI have autonomy to respond, or always queues for human approval?
 - [ ] Same app for both parties, or different UX per role?
 - [ ] What's the authentication/identity model?
-- [ ] First feature to build: message input + AI processing, or two-user sync?

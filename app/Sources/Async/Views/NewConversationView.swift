@@ -1,4 +1,51 @@
 import SwiftUI
+import AppKit
+
+// NSTextField wrapper for reliable focus in sheets
+struct FocusableTextField: NSViewRepresentable {
+    var placeholder: String
+    @Binding var text: String
+    var onSubmit: (() -> Void)?
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.placeholderString = placeholder
+        textField.delegate = context.coordinator
+        textField.bezelStyle = .roundedBezel
+        textField.focusRingType = .exterior
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        nsView.stringValue = text
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: FocusableTextField
+
+        init(_ parent: FocusableTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            if let textField = obj.object as? NSTextField {
+                parent.text = textField.stringValue
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit?()
+                return true
+            }
+            return false
+        }
+    }
+}
 
 struct NewConversationView: View {
     @EnvironmentObject var appState: AppState
@@ -10,7 +57,6 @@ struct NewConversationView: View {
     @State private var foundUser: User?
     @State private var isSearching = false
     @State private var searchError: String?
-    @FocusState private var isRecipientFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,83 +74,92 @@ struct NewConversationView: View {
 
             Divider()
 
-            Form {
-                // Recipient
-                Section("Recipient") {
-                    HStack {
-                        TextField("GitHub username", text: $recipientHandle)
-                            .textFieldStyle(.squareBorder)
-                            .focused($isRecipientFocused)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Recipient Section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Recipient")
+                            .font(.headline)
 
-                        Button("Find") {
-                            searchUser()
-                        }
-                        .disabled(recipientHandle.isEmpty || isSearching)
-                    }
-
-                    if isSearching {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else if let user = foundUser {
                         HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text("Found: \(user.displayName)")
-                            Text("(@\(user.githubHandle ?? ""))")
-                                .foregroundColor(.secondary)
+                            Text("GitHub username")
+                                .frame(width: 120, alignment: .leading)
+                            FocusableTextField(placeholder: "", text: $recipientHandle) {
+                                searchUser()
+                            }
+                            .frame(height: 24)
+                            Button("Find") {
+                                searchUser()
+                            }
+                            .disabled(recipientHandle.isEmpty || isSearching)
                         }
-                    } else if let error = searchError {
-                        HStack {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.red)
-                            Text(error)
-                        }
-                    }
 
-                    // Quick select for ginzatron
-                    Button("Select ginzatron") {
-                        recipientHandle = "ginzatron"
-                        searchUser()
-                    }
-                    .buttonStyle(.link)
-                }
-
-                // Title
-                Section("Conversation Title (Optional)") {
-                    TextField("e.g., Project Discussion", text: $title)
-                        .textFieldStyle(.squareBorder)
-                }
-
-                // Mode
-                Section("Communication Mode") {
-                    Picker("Mode", selection: $selectedMode) {
-                        ForEach(ConversationMode.allCases, id: \.self) { mode in
-                            VStack(alignment: .leading) {
-                                Text(mode.displayName)
-                                Text(mode.description)
-                                    .font(.caption)
+                        if isSearching {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else if let user = foundUser {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Found: \(user.displayName)")
+                                Text("(@\(user.githubHandle ?? ""))")
                                     .foregroundColor(.secondary)
                             }
-                            .tag(mode)
+                        } else if let error = searchError {
+                            HStack {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.red)
+                                Text(error)
+                            }
+                        }
+
+                        Button("Select ginzatron") {
+                            recipientHandle = "ginzatron"
+                            searchUser()
+                        }
+                        .buttonStyle(.link)
+                    }
+
+                    Divider()
+
+                    // Title Section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Conversation Title (Optional)")
+                            .font(.headline)
+
+                        HStack {
+                            Text("e.g., Project Discussion")
+                                .frame(width: 160, alignment: .leading)
+                                .foregroundColor(.secondary)
+                            FocusableTextField(placeholder: "", text: $title)
+                                .frame(height: 24)
                         }
                     }
-                    .pickerStyle(.radioGroup)
 
-                    // Mode explanation
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label("About this mode", systemImage: "info.circle")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                            Text(selectedMode.description)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                    Divider()
+
+                    // Mode Section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Communication Mode")
+                            .font(.headline)
+
+                        Picker("Mode", selection: $selectedMode) {
+                            ForEach(ConversationMode.allCases, id: \.self) { mode in
+                                VStack(alignment: .leading) {
+                                    Text(mode.displayName)
+                                    Text(mode.description)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .tag(mode)
+                            }
                         }
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
                     }
                 }
+                .padding()
             }
-            .formStyle(.grouped)
-            .padding()
 
             Divider()
 
@@ -127,11 +182,6 @@ struct NewConversationView: View {
             .padding()
         }
         .frame(width: 500, height: 550)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                isRecipientFocused = true
-            }
-        }
     }
 
     func searchUser() {
