@@ -126,6 +126,7 @@ struct ConversationView: View {
             }
             .buttonStyle(.borderless)
             .help("Refresh")
+            .accessibilityLabel("Refresh messages")
 
             // Delete button
             Button {
@@ -136,6 +137,8 @@ struct ConversationView: View {
             }
             .buttonStyle(.plain)
             .help("Delete Conversation")
+            .accessibilityLabel("Delete conversation")
+            .accessibilityHint("Permanently deletes this conversation and all messages")
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor))
@@ -190,6 +193,7 @@ struct ConversationView: View {
             .buttonStyle(.borderedProminent)
             .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: .command)
+            .accessibilityLabel("Send message")
         }
         .padding()
     }

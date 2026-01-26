@@ -132,6 +132,8 @@ struct ConversationListPanel: View {
                 }
                 .buttonStyle(.borderless)
                 .help("New Conversation")
+                .accessibilityLabel("New Conversation")
+                .accessibilityHint("Create a new conversation")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -183,7 +185,7 @@ struct ConversationRow: View {
                 // Title row: name + mode badge + time
                 HStack(spacing: 6) {
                     Text(conversation.displayTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
 
                     // Mode badge (subtle, to distinguish same-person convos)
@@ -192,19 +194,19 @@ struct ConversationRow: View {
                     Spacer()
 
                     Text(conversation.relativeTime)
-                        .font(.system(size: 11))
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                 }
 
                 // Last message preview
                 if let preview = conversation.lastMessagePreview {
                     Text(preview)
-                        .font(.system(size: 12))
+                        .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 } else {
                     Text("No messages yet")
-                        .font(.system(size: 12))
+                        .font(.caption)
                         .foregroundColor(.secondary)
                         .italic()
                 }

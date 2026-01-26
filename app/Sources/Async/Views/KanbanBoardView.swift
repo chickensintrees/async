@@ -44,6 +44,7 @@ struct KanbanBoardView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(viewModel.isLoading)
+                .accessibilityLabel("Refresh issues")
             }
             .padding()
 
@@ -286,12 +287,14 @@ struct KanbanCardView: View {
                             .font(.caption)
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Edit issue")
 
                     Button(action: onOpen) {
                         Label("GitHub", systemImage: "arrow.up.right.square")
                             .font(.caption)
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Open in GitHub")
 
                     Spacer()
                 }

@@ -1,40 +1,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Design Tokens
-
-enum DesignTokens {
-    static let bgPrimary = Color(red: 0.06, green: 0.06, blue: 0.09)
-    static let bgSecondary = Color(red: 0.10, green: 0.10, blue: 0.14)
-    static let bgTertiary = Color(red: 0.14, green: 0.14, blue: 0.18)
-
-    static let accentPrimary = Color(red: 0.35, green: 0.55, blue: 0.98)
-    static let accentGreen = Color(red: 0.24, green: 0.74, blue: 0.46)
-    static let accentPurple = Color(red: 0.64, green: 0.45, blue: 0.90)
-    static let accentRed = Color(red: 0.90, green: 0.35, blue: 0.40)
-
-    static let textPrimary = Color.white.opacity(0.95)
-    static let textSecondary = Color.white.opacity(0.65)
-    static let textMuted = Color.white.opacity(0.45)
-}
-
-enum UserColors {
-    static func forUser(_ username: String) -> Color {
-        switch username.lowercased() {
-        case "chickensintrees": return DesignTokens.accentPrimary
-        case "ginzatron": return DesignTokens.accentPurple
-        default: return DesignTokens.textSecondary
-        }
-    }
-
-    static func initial(for username: String) -> String {
-        switch username.lowercased() {
-        case "chickensintrees": return "B"
-        case "ginzatron": return "N"
-        default: return String(username.prefix(1)).uppercased()
-        }
-    }
-}
+// Design tokens and user colors are now in DesignSystem.swift
 
 // MARK: - Dashboard View
 
@@ -150,6 +117,8 @@ struct DashboardHeader: View {
                     .foregroundColor(DesignTokens.textSecondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Open in GitHub")
+            .accessibilityHint("Opens the repository in your web browser")
 
             Spacer()
 
@@ -175,6 +144,8 @@ struct DashboardHeader: View {
             }
             .buttonStyle(.bordered)
             .disabled(viewModel.isLoading)
+            .accessibilityLabel("Refresh")
+            .accessibilityHint("Refresh all dashboard data")
         }
         .padding()
         .background(DesignTokens.bgSecondary)
