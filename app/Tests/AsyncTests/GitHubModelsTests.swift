@@ -174,7 +174,7 @@ final class RepoEventTests: XCTestCase {
             type: type,
             actor: RepoEvent.Actor(login: "testuser"),
             created_at: Date(),
-            payload: RepoEvent.Payload(action: action, ref: ref, commits: commitList)
+            payload: RepoEvent.Payload(action: action, ref: ref, size: commits, commits: commitList)
         )
     }
 }
