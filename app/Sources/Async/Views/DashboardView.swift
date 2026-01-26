@@ -40,6 +40,7 @@ enum UserColors {
 
 struct DashboardView: View {
     @EnvironmentObject var viewModel: DashboardViewModel
+    @EnvironmentObject var gameVM: GamificationViewModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,7 +55,17 @@ struct DashboardView: View {
                     }
                     .padding()
                 }
-                .frame(minWidth: 350)
+                .frame(minWidth: 300)
+
+                // Center: Leaderboard + Commentary
+                ScrollView {
+                    VStack(spacing: 16) {
+                        LeaderboardPanel()
+                        CommentaryPanel()
+                    }
+                    .padding()
+                }
+                .frame(minWidth: 300)
 
                 // Right: Issues
                 ScrollView {
@@ -63,10 +74,14 @@ struct DashboardView: View {
                     }
                     .padding()
                 }
-                .frame(minWidth: 350)
+                .frame(minWidth: 300)
             }
         }
         .background(DesignTokens.bgPrimary)
+        .task {
+            // Process commits for scoring
+            await gameVM.processNewCommits(viewModel.commits, using: GitHubService.shared)
+        }
     }
 }
 

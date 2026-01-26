@@ -4,13 +4,15 @@ import SwiftUI
 struct AsyncApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var dashboardVM = DashboardViewModel()
+    @StateObject private var gameVM = GamificationViewModel()
 
     var body: some Scene {
         WindowGroup {
             MainView()
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
-                .frame(minWidth: 1000, minHeight: 700)
+                .environmentObject(gameVM)
+                .frame(minWidth: 1100, minHeight: 700)
         }
         .windowStyle(.titleBar)
         .commands {
