@@ -262,3 +262,272 @@ final class MessageReadTests: XCTestCase {
         XCTAssertEqual(read.readAt, readAt)
     }
 }
+
+// MARK: - ConnectionStatus Tests
+
+final class ConnectionStatusTests: XCTestCase {
+
+    func testDisplayNames() {
+        XCTAssertEqual(ConnectionStatus.pending.displayName, "Pending")
+        XCTAssertEqual(ConnectionStatus.active.displayName, "Active")
+        XCTAssertEqual(ConnectionStatus.paused.displayName, "Paused")
+        XCTAssertEqual(ConnectionStatus.declined.displayName, "Declined")
+        XCTAssertEqual(ConnectionStatus.archived.displayName, "Archived")
+    }
+
+    func testColors() {
+        XCTAssertEqual(ConnectionStatus.pending.color, "orange")
+        XCTAssertEqual(ConnectionStatus.active.color, "green")
+        XCTAssertEqual(ConnectionStatus.paused.color, "yellow")
+        XCTAssertEqual(ConnectionStatus.declined.color, "red")
+        XCTAssertEqual(ConnectionStatus.archived.color, "gray")
+    }
+
+    func testRawValues() {
+        XCTAssertEqual(ConnectionStatus.pending.rawValue, "pending")
+        XCTAssertEqual(ConnectionStatus.active.rawValue, "active")
+        XCTAssertEqual(ConnectionStatus.paused.rawValue, "paused")
+        XCTAssertEqual(ConnectionStatus.declined.rawValue, "declined")
+        XCTAssertEqual(ConnectionStatus.archived.rawValue, "archived")
+    }
+
+    func testCaseIterable() {
+        XCTAssertEqual(ConnectionStatus.allCases.count, 5)
+    }
+}
+
+// MARK: - Connection Tests
+
+final class ConnectionTests: XCTestCase {
+
+    func testConnectionInit() {
+        let id = UUID()
+        let ownerId = UUID()
+        let subscriberId = UUID()
+        let now = Date()
+
+        let connection = Connection(
+            id: id,
+            ownerId: ownerId,
+            subscriberId: subscriberId,
+            status: .active,
+            requestMessage: "Please add me!",
+            statusChangedAt: now,
+            createdAt: now,
+            updatedAt: now
+        )
+
+        XCTAssertEqual(connection.id, id)
+        XCTAssertEqual(connection.ownerId, ownerId)
+        XCTAssertEqual(connection.subscriberId, subscriberId)
+        XCTAssertEqual(connection.status, .active)
+        XCTAssertEqual(connection.requestMessage, "Please add me!")
+    }
+
+    func testConnectionEquatable() {
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+        let id = UUID()
+        let ownerId = UUID()
+        let subscriberId = UUID()
+
+        let conn1 = Connection(
+            id: id, ownerId: ownerId, subscriberId: subscriberId,
+            status: .pending, requestMessage: nil,
+            statusChangedAt: fixedDate, createdAt: fixedDate, updatedAt: fixedDate
+        )
+        let conn2 = Connection(
+            id: id, ownerId: ownerId, subscriberId: subscriberId,
+            status: .pending, requestMessage: nil,
+            statusChangedAt: fixedDate, createdAt: fixedDate, updatedAt: fixedDate
+        )
+
+        XCTAssertEqual(conn1, conn2)
+    }
+
+    func testConnectionHashable() {
+        let id = UUID()
+        let ownerId = UUID()
+        let subscriberId = UUID()
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+
+        // Same properties = same hash
+        let conn1 = Connection(
+            id: id, ownerId: ownerId, subscriberId: subscriberId,
+            status: .active, requestMessage: nil,
+            statusChangedAt: fixedDate, createdAt: fixedDate, updatedAt: fixedDate
+        )
+        let conn2 = Connection(
+            id: id, ownerId: ownerId, subscriberId: subscriberId,
+            status: .active, requestMessage: nil,
+            statusChangedAt: fixedDate, createdAt: fixedDate, updatedAt: fixedDate
+        )
+
+        var set = Set<Connection>()
+        set.insert(conn1)
+        set.insert(conn2)
+
+        XCTAssertEqual(set.count, 1)
+    }
+}
+
+// MARK: - Tag Tests
+
+final class TagTests: XCTestCase {
+
+    func testTagInit() {
+        let id = UUID()
+        let ownerId = UUID()
+        let now = Date()
+
+        let tag = Tag(
+            id: id,
+            ownerId: ownerId,
+            name: "VIP",
+            color: "#22C55E",
+            createdAt: now
+        )
+
+        XCTAssertEqual(tag.id, id)
+        XCTAssertEqual(tag.ownerId, ownerId)
+        XCTAssertEqual(tag.name, "VIP")
+        XCTAssertEqual(tag.color, "#22C55E")
+    }
+
+    func testTagEquatable() {
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+        let id = UUID()
+        let ownerId = UUID()
+
+        let tag1 = Tag(id: id, ownerId: ownerId, name: "Test", color: "#FFF", createdAt: fixedDate)
+        let tag2 = Tag(id: id, ownerId: ownerId, name: "Test", color: "#FFF", createdAt: fixedDate)
+
+        XCTAssertEqual(tag1, tag2)
+    }
+
+    func testTagHashable() {
+        let id = UUID()
+        let ownerId = UUID()
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+
+        // Same properties = same hash
+        let tag1 = Tag(id: id, ownerId: ownerId, name: "VIP", color: "#FFF", createdAt: fixedDate)
+        let tag2 = Tag(id: id, ownerId: ownerId, name: "VIP", color: "#FFF", createdAt: fixedDate)
+
+        var set = Set<Tag>()
+        set.insert(tag1)
+        set.insert(tag2)
+
+        XCTAssertEqual(set.count, 1)
+    }
+}
+
+// MARK: - ConnectionTag Tests
+
+final class ConnectionTagTests: XCTestCase {
+
+    func testConnectionTagInit() {
+        let connectionId = UUID()
+        let tagId = UUID()
+        let now = Date()
+
+        let ct = ConnectionTag(
+            connectionId: connectionId,
+            tagId: tagId,
+            assignedAt: now
+        )
+
+        XCTAssertEqual(ct.connectionId, connectionId)
+        XCTAssertEqual(ct.tagId, tagId)
+        XCTAssertEqual(ct.assignedAt, now)
+    }
+
+    func testConnectionTagEquatable() {
+        let connectionId = UUID()
+        let tagId = UUID()
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+
+        let ct1 = ConnectionTag(connectionId: connectionId, tagId: tagId, assignedAt: fixedDate)
+        let ct2 = ConnectionTag(connectionId: connectionId, tagId: tagId, assignedAt: fixedDate)
+
+        XCTAssertEqual(ct1, ct2)
+    }
+}
+
+// MARK: - ConnectionWithUser Tests
+
+final class ConnectionWithUserTests: XCTestCase {
+
+    func testConnectionWithUserInit() {
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+        let connectionId = UUID()
+        let userId = UUID()
+
+        let connection = Connection(
+            id: connectionId,
+            ownerId: UUID(),
+            subscriberId: userId,
+            status: .active,
+            requestMessage: nil,
+            statusChangedAt: fixedDate,
+            createdAt: fixedDate,
+            updatedAt: fixedDate
+        )
+
+        let user = User(
+            id: userId,
+            githubHandle: "testuser",
+            displayName: "Test User",
+            email: nil,
+            phoneNumber: nil,
+            avatarUrl: nil,
+            createdAt: fixedDate,
+            updatedAt: fixedDate
+        )
+
+        let tag = Tag(id: UUID(), ownerId: UUID(), name: "VIP", color: "#FFF", createdAt: fixedDate)
+
+        let cwu = ConnectionWithUser(connection: connection, user: user, tags: [tag])
+
+        XCTAssertEqual(cwu.id, connectionId)
+        XCTAssertEqual(cwu.connection, connection)
+        XCTAssertEqual(cwu.user, user)
+        XCTAssertEqual(cwu.tags.count, 1)
+        XCTAssertEqual(cwu.tags.first?.name, "VIP")
+    }
+
+    func testConnectionWithUserHashable() {
+        let fixedDate = Date(timeIntervalSince1970: 1000000)
+        let connectionId = UUID()
+
+        let connection = Connection(
+            id: connectionId,
+            ownerId: UUID(),
+            subscriberId: UUID(),
+            status: .active,
+            requestMessage: nil,
+            statusChangedAt: fixedDate,
+            createdAt: fixedDate,
+            updatedAt: fixedDate
+        )
+
+        let user = User(
+            id: UUID(),
+            githubHandle: "test",
+            displayName: "Test",
+            email: nil,
+            phoneNumber: nil,
+            avatarUrl: nil,
+            createdAt: fixedDate,
+            updatedAt: fixedDate
+        )
+
+        let cwu1 = ConnectionWithUser(connection: connection, user: user, tags: [])
+        let cwu2 = ConnectionWithUser(connection: connection, user: user, tags: [])
+
+        var set = Set<ConnectionWithUser>()
+        set.insert(cwu1)
+        set.insert(cwu2)
+
+        XCTAssertEqual(set.count, 1)
+    }
+}
