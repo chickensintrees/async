@@ -124,8 +124,17 @@ async/
 │   ├── Package.swift
 │   ├── Sources/AsyncDashboard.swift
 │   └── scripts/        # start-dashboard.sh, install.sh
-├── app/                # SwiftUI application (future)
-└── backend/            # Backend service (future)
+├── scripts/
+│   └── sms-context.sh  # Query shared SMS conversation for Claude Code sync
+├── backend/
+│   ├── database/
+│   │   ├── schema.sql              # Core database schema
+│   │   └── migrations/             # Database migrations
+│   │       └── 001_sms_support.sql # SMS/Twilio support
+│   └── supabase/
+│       └── functions/
+│           └── sms-webhook/        # Twilio webhook Edge Function
+└── app/                # SwiftUI application (future)
 ```
 
 ## Dashboard (Live)
@@ -319,10 +328,34 @@ Output a status report with:
 4. **Native experience** - SwiftUI for polished macOS feel
 5. **Dogfood early** - Use the tool to build the tool
 
+## SMS Group Chat (STEF Integration)
+
+Bill and Noah can communicate via SMS with STEF as a participant. Both Claude Code instances share context through Supabase.
+
+### How It Works
+1. SMS messages go to Twilio → Edge Function → Supabase
+2. When @STEF is mentioned, Claude API generates a response
+3. Response sent back via Twilio SMS to all participants
+4. Both Bill's and Noah's Claude Code can query the shared conversation
+
+### Sync Context (For Claude Code)
+```bash
+./scripts/sms-context.sh      # Fetch last 50 messages
+./scripts/sms-context.sh 100  # Fetch last 100 messages
+```
+
+### Trigger STEF Response
+- `@stef` or `stef` (as a word)
+- `@claude`
+- `hey stef`
+
+### Setup
+See `backend/supabase/functions/sms-webhook/README.md` for full setup instructions.
+
 ## Open Questions
 
 - [x] Database choice - **Supabase (Postgres)** ✓
+- [x] First feature to build - **SMS Group Chat with STEF** ✓
 - [ ] Does the AI have autonomy to respond, or always queues for human approval?
 - [ ] Same app for both parties, or different UX per role?
 - [ ] What's the authentication/identity model?
-- [ ] First feature to build: message input + AI processing, or two-user sync?
