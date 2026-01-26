@@ -29,12 +29,10 @@ struct MainView: View {
                 BacklogView()
             }
         }
-        .task {
-            await appState.loadOrCreateUser(
-                githubHandle: Config.currentUserGithubHandle,
-                displayName: Config.currentUserDisplayName
-            )
-            await appState.loadConversations()
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                UserProfileButton()
+            }
         }
         .sheet(isPresented: $appState.showNewConversation) {
             NewConversationView()
@@ -46,6 +44,57 @@ struct MainView: View {
             Button("OK") { appState.errorMessage = nil }
         } message: {
             Text(appState.errorMessage ?? "")
+        }
+    }
+}
+
+// MARK: - User Profile Button
+
+struct UserProfileButton: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Menu {
+            if let user = appState.currentUser {
+                Text("Signed in as @\(user.githubHandle ?? "unknown")")
+                    .font(.caption)
+
+                Divider()
+
+                Button(action: { appState.logout() }) {
+                    Label("Switch User", systemImage: "person.crop.circle.badge.xmark")
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if let user = appState.currentUser {
+                    // Avatar
+                    AsyncImage(url: URL(string: "https://avatars.githubusercontent.com/\(user.githubHandle ?? "")")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        default:
+                            Circle()
+                                .fill(Color.accentColor.opacity(0.3))
+                                .overlay(
+                                    Text(String(user.displayName.prefix(1)))
+                                        .font(.caption.bold())
+                                )
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+
+                    Text(user.displayName)
+                        .font(.subheadline)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
         }
     }
 }

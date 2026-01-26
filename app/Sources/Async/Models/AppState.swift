@@ -51,6 +51,44 @@ class AppState: ObservableObject {
         )
     }
 
+    // MARK: - Login/Logout (Simple Test Auth)
+
+    var isLoggedIn: Bool {
+        currentUser != nil
+    }
+
+    func loginAsUser(githubHandle: String) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let users: [User] = try await supabase
+                .from("users")
+                .select()
+                .eq("github_handle", value: githubHandle)
+                .execute()
+                .value
+
+            if let user = users.first {
+                self.currentUser = user
+                await loadConversations()
+                print("✓ Logged in as: \(user.displayName) (@\(user.githubHandle ?? "unknown"))")
+            } else {
+                errorMessage = "User not found: @\(githubHandle)"
+            }
+        } catch {
+            errorMessage = "Login failed: \(error.localizedDescription)"
+        }
+    }
+
+    func logout() {
+        currentUser = nil
+        conversations = []
+        selectedConversation = nil
+        messages = []
+        print("✓ Logged out")
+    }
+
     // MARK: - User Management
 
     func loadOrCreateUser(githubHandle: String, displayName: String) async {
