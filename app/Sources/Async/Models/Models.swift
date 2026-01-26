@@ -26,7 +26,7 @@ enum ConversationMode: String, Codable, CaseIterable {
 
 // MARK: - User
 
-struct User: Codable, Identifiable, Equatable {
+struct User: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     var githubHandle: String?
     var displayName: String
@@ -157,5 +157,105 @@ struct MessageRead: Codable {
         case messageId = "message_id"
         case userId = "user_id"
         case readAt = "read_at"
+    }
+}
+
+// MARK: - Connection Status
+
+enum ConnectionStatus: String, Codable, CaseIterable {
+    case pending = "pending"
+    case active = "active"
+    case paused = "paused"
+    case declined = "declined"
+    case archived = "archived"
+
+    var displayName: String {
+        switch self {
+        case .pending: return "Pending"
+        case .active: return "Active"
+        case .paused: return "Paused"
+        case .declined: return "Declined"
+        case .archived: return "Archived"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .pending: return "orange"
+        case .active: return "green"
+        case .paused: return "yellow"
+        case .declined: return "red"
+        case .archived: return "gray"
+        }
+    }
+}
+
+// MARK: - Connection
+
+struct Connection: Codable, Identifiable, Equatable, Hashable {
+    let id: UUID
+    let ownerId: UUID
+    let subscriberId: UUID
+    var status: ConnectionStatus
+    let requestMessage: String?
+    let statusChangedAt: Date
+    let createdAt: Date
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ownerId = "owner_id"
+        case subscriberId = "subscriber_id"
+        case status
+        case requestMessage = "request_message"
+        case statusChangedAt = "status_changed_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - Tag
+
+struct Tag: Codable, Identifiable, Equatable, Hashable {
+    let id: UUID
+    let ownerId: UUID
+    var name: String
+    var color: String
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ownerId = "owner_id"
+        case name
+        case color
+        case createdAt = "created_at"
+    }
+}
+
+// MARK: - Connection Tag (Junction)
+
+struct ConnectionTag: Codable, Equatable {
+    let connectionId: UUID
+    let tagId: UUID
+    let assignedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case connectionId = "connection_id"
+        case tagId = "tag_id"
+        case assignedAt = "assigned_at"
+    }
+}
+
+// MARK: - Connection with User (for display)
+
+struct ConnectionWithUser: Identifiable, Equatable, Hashable {
+    let connection: Connection
+    let user: User  // The other party (subscriber for owner view, owner for subscriber view)
+    var tags: [Tag]
+
+    var id: UUID { connection.id }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(connection.id)
     }
 }

@@ -50,6 +50,13 @@ struct AsyncApp: App {
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Divider()
+
+                Button("Admin Portal") {
+                    appState.showAdminPortal = true
+                }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
             }
 
             // Help menu
