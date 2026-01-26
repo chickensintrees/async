@@ -180,6 +180,51 @@ cd dashboard
 - PRs require review before merge
 - Major decisions documented in openspec/
 
+## Protocol Thunderdome (Scrum Master Routine)
+
+STEF acts as AI scrum master for this project. When Bill says **"Protocol Thunderdome"** or **"run scrum"**, execute this routine:
+
+### 1. Fetch Current State
+```bash
+# Recent commits (all contributors)
+gh api repos/chickensintrees/async/commits --jq '.[:15] | .[] | "\(.sha[0:7]) \(.author.login): \(.commit.message | split("\n")[0])"'
+
+# Recent activity
+gh api repos/chickensintrees/async/events --jq '.[:10] | .[] | "\(.created_at | split("T")[0]) \(.actor.login): \(.type)"'
+
+# Open issues
+gh api repos/chickensintrees/async/issues --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
+
+# Latest comments
+gh api repos/chickensintrees/async/issues/comments --jq '.[-5:] | .[] | "Issue #\(.issue_url | split("/") | last) - \(.user.login): \(.body | split("\n")[0])"'
+
+# Check all branches for contributor activity
+gh api repos/chickensintrees/async/branches --jq '.[].name'
+```
+
+### 2. Calculate Scores
+Using the gamification scoring system:
+- +50 for commits with tests
+- +10 for small commits (<50 lines)
+- +100 for merged PRs
+- -100 for breaking CI
+- -75 for untested code dumps (>300 lines)
+- -15 for lazy commit messages
+
+### 3. Generate Report
+Output a status report with:
+- **Leaderboard** - Scores and titles for Bill & Noah
+- **Recent Activity** - Who did what
+- **Backlog** - Prioritized issue list
+- **Blockers** - Anything blocking progress
+- **Recommended Actions** - Next steps
+
+### 4. Identify Action Items
+- Specs needing review
+- PRs waiting for merge
+- Issues needing response
+- Tests to write
+
 ## Design Principles
 
 1. **AI as intermediary, not replacement** - The AI enhances communication, doesn't replace human connection
