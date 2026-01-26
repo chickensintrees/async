@@ -20,34 +20,80 @@ This is a collaborative project. Before building features:
 ### Multi-Agent Coordination
 **CRITICAL**: Multiple Claude Code agents may be working on this codebase simultaneously. Follow these rules:
 
-#### Before Making Changes
-1. **Check git status** - If there are uncommitted changes, another agent may be working
-2. **Check running processes** - Run `ps aux | grep swift` to see if builds are running
-3. **Communicate via file** - Check `~/.claude/agent-status.json` for active agents
-
-#### Claiming Work
-Before starting significant work:
+#### Agent Identity
+Each Claude Code session should set a unique agent ID at startup:
 ```bash
-# Claim your work area
-echo '{"agent": "agent-name", "working_on": "feature-x", "started": "'$(date -Iseconds)'"}' > ~/.claude/agent-claim.json
+export CLAUDE_AGENT_ID="bill-main"      # or "bill-secondary", "noah-main", etc.
 ```
 
-#### File-Level Locking
-- **Don't edit files another agent is actively editing**
-- If you see recent modifications (within last few minutes), ask the user which agent should proceed
-- Small, atomic commits reduce conflicts
+Or the system will auto-generate one and persist it to `~/.claude/agent-id`.
 
-#### Conflict Resolution
-1. If you encounter merge conflicts, STOP and notify the user
-2. Don't force push or overwrite another agent's work
-3. Use feature branches for larger changes
+#### Agent Lock System
+Use `scripts/agent-lock.sh` to coordinate file access:
 
-#### Safe Parallel Work
-These areas can usually be worked on in parallel:
+```bash
+# Check if a file is available
+./scripts/agent-lock.sh check app/Sources/Async/Views/MainView.swift
+
+# Acquire lock before editing (10-minute TTL)
+./scripts/agent-lock.sh acquire app/Sources/Async/Views/MainView.swift "refactoring navigation"
+
+# Release when done
+./scripts/agent-lock.sh release app/Sources/Async/Views/MainView.swift
+
+# See all active locks
+./scripts/agent-lock.sh status
+
+# Clean up stale locks (>10 min old)
+./scripts/agent-lock.sh cleanup
+```
+
+#### Before Making Changes
+1. **Check locks first**: `./scripts/agent-lock.sh status`
+2. **Check git status**: If uncommitted changes exist, another agent may be mid-edit
+3. **Acquire lock**: Before editing any file, acquire its lock
+4. **Pull before push**: Always `git pull --rebase` before pushing
+
+#### Mandatory Lock Protocol
+**YOU MUST** acquire a lock before editing these critical files:
+- `CLAUDE.md` - Project instructions
+- `app/Sources/Async/Models/*.swift` - Shared data models
+- `app/Sources/Async/Services/*.swift` - Core services
+- `.claude/settings.json` - Project config
+
+For Views, lock the specific view you're editing.
+
+#### If Lock is Held
+1. Check `./scripts/agent-lock.sh status` to see who holds it
+2. If lock is STALE (>10 min), you may override: `./scripts/agent-lock.sh cleanup`
+3. If lock is ACTIVE, **ask the user** which agent should proceed
+4. Never force-edit a locked file
+
+#### Git Conflict Protocol
+1. **Before committing**: `git pull --rebase origin main`
+2. **If conflicts occur**: STOP, notify user, don't force resolve
+3. **After resolving**: Release your locks, let other agent continue
+
+#### Safe Parallel Work Zones
+These can usually be edited simultaneously without locks:
 - Different Views (one agent on MainView, another on DashboardView)
-- Backend vs Frontend
+- Backend (`backend/`) vs App (`app/`)
 - Tests vs Implementation
-- Documentation vs Code
+- Documentation (separate files) vs Code
+
+#### Quick Reference
+```bash
+# Start of work session
+./scripts/agent-lock.sh status
+./scripts/agent-lock.sh acquire <file> "description"
+
+# End of work session
+./scripts/agent-lock.sh release <file>
+git add -A && git commit -m "..." && git push
+
+# Before any edit
+./scripts/agent-lock.sh check <file>
+```
 
 ## Project Overview
 
