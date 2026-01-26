@@ -8,11 +8,10 @@ struct AsyncApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainView()
+            RootView()
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
                 .environmentObject(gameVM)
-                .frame(minWidth: 1100, minHeight: 700)
         }
         .windowStyle(.titleBar)
         .commands {
@@ -72,6 +71,23 @@ struct AsyncApp: App {
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
                 .environmentObject(gameVM)
+        }
+    }
+}
+
+// MARK: - Root View (handles login state)
+
+struct RootView: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Group {
+            if appState.isLoggedIn {
+                MainView()
+                    .frame(minWidth: 1100, minHeight: 700)
+            } else {
+                UserPickerView()
+            }
         }
     }
 }

@@ -10,6 +10,7 @@ enum AppTab: String, CaseIterable {
     case contacts = "Contacts"
     case dashboard = "Dashboard"
     case backlog = "Backlog"
+    case admin = "Admin"
 
     var icon: String {
         switch self {
@@ -17,6 +18,7 @@ enum AppTab: String, CaseIterable {
         case .contacts: return "person.2.fill"
         case .dashboard: return "chart.bar.fill"
         case .backlog: return "list.bullet.rectangle"
+        case .admin: return "gearshape.2.fill"
         }
     }
 }
@@ -49,6 +51,44 @@ class AppState: ObservableObject {
             supabaseURL: URL(string: Config.supabaseURL)!,
             supabaseKey: Config.supabaseAnonKey
         )
+    }
+
+    // MARK: - Login/Logout (Simple Test Auth)
+
+    var isLoggedIn: Bool {
+        currentUser != nil
+    }
+
+    func loginAsUser(githubHandle: String) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let users: [User] = try await supabase
+                .from("users")
+                .select()
+                .eq("github_handle", value: githubHandle)
+                .execute()
+                .value
+
+            if let user = users.first {
+                self.currentUser = user
+                await loadConversations()
+                print("✓ Logged in as: \(user.displayName) (@\(user.githubHandle ?? "unknown"))")
+            } else {
+                errorMessage = "User not found: @\(githubHandle)"
+            }
+        } catch {
+            errorMessage = "Login failed: \(error.localizedDescription)"
+        }
+    }
+
+    func logout() {
+        currentUser = nil
+        conversations = []
+        selectedConversation = nil
+        messages = []
+        print("✓ Logged out")
     }
 
     // MARK: - User Management

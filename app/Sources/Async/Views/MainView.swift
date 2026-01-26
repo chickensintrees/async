@@ -3,9 +3,10 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var dashboardVM: DashboardViewModel
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             // Main navigation sidebar
             List(selection: $appState.selectedTab) {
                 Section("App") {
@@ -16,8 +17,7 @@ struct MainView: View {
                 }
             }
             .listStyle(.sidebar)
-            .frame(minWidth: 180)
-            .padding(.leading, 4)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
         } detail: {
             switch appState.selectedTab {
             case .messages:
@@ -28,8 +28,11 @@ struct MainView: View {
                 DashboardView()
             case .backlog:
                 BacklogView()
+            case .admin:
+                AdminPortalView()
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .task {
             await appState.loadOrCreateUser(
                 githubHandle: Config.currentUserGithubHandle,

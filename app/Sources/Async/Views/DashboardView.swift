@@ -46,35 +46,29 @@ struct DashboardView: View {
         VStack(spacing: 0) {
             DashboardHeader()
 
-            HSplitView {
-                // Left: Activity + Commits
-                ScrollView {
+            ScrollView {
+                HStack(alignment: .top, spacing: 16) {
+                    // Left: Activity + Commits
                     VStack(spacing: 16) {
                         ActivityPanel()
                         CommitsPanel()
                     }
-                    .padding()
-                }
-                .frame(minWidth: 300)
+                    .frame(minWidth: 280, maxWidth: 400)
 
-                // Center: Leaderboard + Commentary
-                ScrollView {
+                    // Center: Leaderboard + Commentary
                     VStack(spacing: 16) {
                         LeaderboardPanel()
                         CommentaryPanel()
                     }
-                    .padding()
-                }
-                .frame(minWidth: 300)
+                    .frame(minWidth: 280, maxWidth: 400)
 
-                // Right: Issues
-                ScrollView {
+                    // Right: Issues
                     VStack(spacing: 16) {
                         IssuesPanel()
                     }
-                    .padding()
+                    .frame(minWidth: 200, maxWidth: 300)
                 }
-                .frame(minWidth: 300)
+                .padding()
             }
         }
         .background(DesignTokens.bgPrimary)
