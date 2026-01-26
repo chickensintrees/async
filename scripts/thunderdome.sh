@@ -247,8 +247,8 @@ printf "  ${BLUE}│${RESET}  ${WHITE}${BOLD}BILL${RESET} ${GRAY}(chickensintree
 
 # Get commit counts for today (local midnight converted to UTC for API accuracy)
 TODAY_START=$(date -j -f "%Y-%m-%d %H:%M:%S" "$(date +%Y-%m-%d) 00:00:00" +%s 2>/dev/null | xargs -I{} date -r {} -u +%Y-%m-%dT%H:%M:%SZ)
-BILL_TODAY=$(gh api "repos/chickensintrees/async/commits?author=chickensintrees&since=$TODAY_START" --jq 'length' 2>/dev/null || echo "?")
-NOAH_TODAY=$(gh api "repos/chickensintrees/async/commits?author=ginzatron&since=$TODAY_START" --jq 'length' 2>/dev/null || echo "?")
+BILL_TODAY=$(gh api "repos/chickensintrees/async/commits?per_page=100&author=chickensintrees&since=$TODAY_START" --jq 'length' 2>/dev/null || echo "?")
+NOAH_TODAY=$(gh api "repos/chickensintrees/async/commits?per_page=100&author=ginzatron&since=$TODAY_START" --jq 'length' 2>/dev/null || echo "?")
 
 printf "  ${BLUE}│${RESET}  Commits today: ${GREEN}$BILL_TODAY${RESET}       ${BLUE}│${RESET}     ${PURPLE}│${RESET}  Commits today: ${GREEN}$NOAH_TODAY${RESET}       ${PURPLE}│${RESET}\n"
 printf "  ${BLUE}└─────────────────────────┘${RESET}     ${PURPLE}└─────────────────────────┘${RESET}\n"
