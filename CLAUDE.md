@@ -29,7 +29,7 @@ The AI doesn't just pass messages through - it adds value by summarizing, adjust
 
 ## Dogfooding Strategy
 
-Once MVP is working, Bill (chickensintrees) and ginzatron will use Async to coordinate development of Async itself. This gives us:
+Once MVP is working, chickensintrees and ginzatron will use Async to coordinate development of Async itself. This gives us:
 - Real usage data from day one
 - Immediate feedback on friction points
 - Proof of concept for other use cases
@@ -141,7 +141,7 @@ cd dashboard
 
 ### Features
 - **Activity Feed**: Real-time repo events (commits, issues, PRs)
-- **Leaderboard**: Competitive scoring between Bill and Noah
+- **Leaderboard**: Competitive scoring between chickensintrees and ginzatron
 - **AI Commentary**: Claude-powered trash talk via "Request Fresh Roast" button
 
 ### Gamification Scoring
@@ -175,14 +175,14 @@ cd dashboard
 4. **Update specs** - Archive completed changes to specs/
 
 ### Collaboration
-- Bill (chickensintrees) and ginzatron are collaborating on this project
+- chickensintrees and ginzatron are collaborating on this project
 - Use GitHub Issues for discussion and tracking
 - PRs require review before merge
 - Major decisions documented in openspec/
 
 ## AI-Managed Code Review & Merging
 
-**IMPORTANT FOR ALL CLAUDE CODE INSTANCES**: The AI (STEF/Claude) manages all code review and merging for this project. This applies whether you're working with Bill or Noah.
+**IMPORTANT FOR ALL CLAUDE CODE INSTANCES**: The AI (STEF/Claude) manages all code review and merging for this project. This applies whether you're working with chickensintrees or ginzatron.
 
 ### Branch Strategy
 - `main` - Production-ready code
@@ -253,7 +253,7 @@ If there are merge conflicts:
 5. **Complete the merge**
 
 ### Cross-Contributor Sync
-When Bill pushes to main and Noah has a feature branch (or vice versa):
+When chickensintrees pushes to main and ginzatron has a feature branch (or vice versa):
 1. AI should **proactively check for divergence**
 2. **Notify the other contributor** if their branch is behind
 3. **Suggest rebasing or merging** main into their branch
@@ -268,7 +268,7 @@ When Bill pushes to main and Noah has a feature branch (or vice versa):
 
 ## Protocol Thunderdome (Scrum Master Routine)
 
-STEF acts as AI scrum master for this project. When Bill says **"Protocol Thunderdome"** or **"run scrum"**, execute this routine:
+STEF acts as AI scrum master for this project. When chickensintrees says **"Protocol Thunderdome"** or **"run scrum"**, execute this routine:
 
 ### 1. Fetch Current State
 ```bash
@@ -299,7 +299,7 @@ Using the gamification scoring system:
 
 ### 3. Generate Report
 Output a status report with:
-- **Leaderboard** - Scores and titles for Bill & Noah
+- **Leaderboard** - Scores and titles for chickensintrees & ginzatron
 - **Recent Activity** - Who did what
 - **Backlog** - Prioritized issue list
 - **Blockers** - Anything blocking progress
