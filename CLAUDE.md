@@ -122,6 +122,28 @@ User
 ├── display_name
 ```
 
+## Required Claude Code Plugins
+
+**IMPORTANT FOR ALL CONTRIBUTORS**: Install these plugins before working on the codebase.
+
+### Axiom (SwiftUI/iOS Development)
+131 skills for iOS/macOS development including SwiftUI layout, performance, debugging, navigation, and more.
+
+```bash
+# Install Axiom marketplace and plugin
+claude plugin marketplace add CharlesWiltgen/Axiom
+claude plugin install axiom
+```
+
+Key skills for this project:
+- `/axiom:swiftui-layout` - Layout patterns
+- `/axiom:swiftui-performance` - Performance optimization
+- `/axiom:swiftui-debugging` - Debug UI issues
+- `/axiom:swiftui-nav` - Navigation patterns
+- `/axiom:swiftdata` - SwiftData persistence
+
+The project's `.claude/settings.json` already enables this plugin - you just need to install it.
+
 ## Technology Stack
 
 - **Client**: SwiftUI (native macOS app)
