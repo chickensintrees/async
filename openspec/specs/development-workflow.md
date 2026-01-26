@@ -123,6 +123,29 @@ A feature is DONE when:
 - [ ] Code committed and pushed
 - [ ] Tests written and passing
 - [ ] PR merged (if feature branch)
+- [ ] **Documentation updated** (README, CLAUDE.md, specs)
 - [ ] Deployed to /Applications
 - [ ] Issue closed
 - [ ] Thunderdome shows clean status
+
+## Documentation Requirements
+
+**GitHub is the single source of truth.** All documentation must reflect reality.
+
+### When to Update Docs
+
+| Change Type | Update These Files |
+|-------------|-------------------|
+| New feature | README.md, CLAUDE.md |
+| Architecture change | CLAUDE.md, openspec/project.md |
+| Database change | backend/database/README.md |
+| Workflow change | openspec/AGENTS.md, this file |
+| New script | README.md (Quick Start section) |
+
+### Debrief Protocol
+
+Every session must end with:
+1. Commit and push all changes
+2. Review and update documentation
+3. Run Thunderdome
+4. Create session log (if significant work done)

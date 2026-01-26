@@ -319,6 +319,58 @@ Output a status report with:
 - PRs waiting for merge
 - Issues needing response
 - Tests to write
+- **Documentation to update**
+
+### 5. Documentation Check
+Verify these files reflect reality:
+- `README.md` - Tech stack, features, repo structure
+- `CLAUDE.md` - Project state, workflows, open questions
+- `openspec/project.md` - Tech stack, file locations
+- `openspec/AGENTS.md` - Current domains, protocols
+- `backend/database/README.md` - Tables, migrations
+
+If any doc is outdated, update it before ending the session.
+
+## Debrief Protocol (End of Session)
+
+When user says **"debrief"**, **"end session"**, or **"save and quit"**:
+
+### 1. Commit All Changes
+```bash
+git status
+git add -A
+git commit -m "Session: brief description of work done"
+git push origin main
+```
+
+### 2. Documentation Review
+Check and update ALL documentation to reflect any changes made:
+- Did we add new features? → Update README.md
+- Did we change architecture? → Update CLAUDE.md, openspec/project.md
+- Did we add database tables/migrations? → Update backend/database/README.md
+- Did we change workflows? → Update openspec/AGENTS.md, specs/
+
+**GitHub is the single source of truth. All docs must reflect reality.**
+
+### 3. Run Thunderdome
+```bash
+./scripts/thunderdome.sh
+```
+
+### 4. Create Session Log
+Write a session log to `~/.claude/session-logs/YYYY-MM-DD-topic.md` with:
+- What happened
+- What was built/changed
+- Current status
+- Next steps
+- Files changed
+
+### 5. Confirm Safe to Close
+Verify:
+- [ ] All changes committed and pushed
+- [ ] Documentation updated
+- [ ] Thunderdome shows clean status
+- [ ] Session log created
 
 ## Design Principles
 
