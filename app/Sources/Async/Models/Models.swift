@@ -89,6 +89,68 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+// MARK: - Conversation with Details (for display)
+
+struct ConversationWithDetails: Identifiable, Equatable, Hashable {
+    let conversation: Conversation
+    let participants: [User]
+    let lastMessage: Message?
+    let unreadCount: Int
+
+    var id: UUID { conversation.id }
+
+    /// Display title: participant names or custom title
+    var displayTitle: String {
+        if let title = conversation.title, !title.isEmpty {
+            return title
+        }
+        // Show other participants' names (exclude current user shown elsewhere)
+        let names = participants.map { $0.displayName }
+        if names.isEmpty {
+            return "New Conversation"
+        }
+        return names.joined(separator: ", ")
+    }
+
+    /// Last message preview (truncated)
+    var lastMessagePreview: String? {
+        guard let msg = lastMessage else { return nil }
+        let content = msg.contentRaw
+        if content.count > 50 {
+            return String(content.prefix(47)) + "..."
+        }
+        return content
+    }
+
+    /// Relative timestamp for last activity
+    var relativeTime: String {
+        let date = lastMessage?.createdAt ?? conversation.updatedAt
+        let now = Date()
+        let diff = now.timeIntervalSince(date)
+
+        if diff < 60 {
+            return "now"
+        } else if diff < 3600 {
+            let mins = Int(diff / 60)
+            return "\(mins)m"
+        } else if diff < 86400 {
+            let hours = Int(diff / 3600)
+            return "\(hours)h"
+        } else if diff < 604800 {
+            let days = Int(diff / 86400)
+            return "\(days)d"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
+        }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(conversation.id)
+    }
+}
+
 // MARK: - Conversation Participant
 
 struct ConversationParticipant: Codable {

@@ -51,8 +51,11 @@ struct MessageTextField: NSViewRepresentable {
 
 struct ConversationView: View {
     @EnvironmentObject var appState: AppState
-    let conversation: Conversation
+    let conversationDetails: ConversationWithDetails
     @State private var newMessage = ""
+    @State private var showDeleteConfirmation = false
+
+    private var conversation: Conversation { conversationDetails.conversation }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,11 +94,11 @@ struct ConversationView: View {
             messageInput
         }
         .task {
-            await appState.loadMessages(for: conversation)
+            await appState.loadMessages(for: conversationDetails)
         }
-        .onChange(of: conversation) { _, newConvo in
+        .onChange(of: conversationDetails) { _, newDetails in
             Task {
-                await appState.loadMessages(for: newConvo)
+                await appState.loadMessages(for: newDetails)
             }
         }
     }
@@ -103,11 +106,11 @@ struct ConversationView: View {
     var conversationHeader: some View {
         HStack {
             VStack(alignment: .leading) {
-                Text(conversation.displayTitle)
+                Text(conversationDetails.displayTitle)
                     .font(.headline)
                 HStack(spacing: 4) {
                     modeIcon
-                    Text(conversation.mode.displayName)
+                    Text(modeLabel)
                         .font(.caption)
                 }
                 .foregroundColor(.secondary)
@@ -115,16 +118,35 @@ struct ConversationView: View {
 
             Spacer()
 
+            // Refresh button
             Button(action: {
-                Task { await appState.loadMessages(for: conversation) }
+                Task { await appState.loadMessages(for: conversationDetails) }
             }) {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help("Refresh messages")
+            .help("Refresh")
+
+            // Delete button
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.plain)
+            .help("Delete Conversation")
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor))
+        .alert("Delete Conversation?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteCurrentConversation()
+            }
+        } message: {
+            Text("This will permanently delete this conversation and all its messages.")
+        }
     }
 
     var modeIcon: some View {
@@ -134,12 +156,20 @@ struct ConversationView: View {
                 Image(systemName: "eye.slash")
                     .foregroundColor(.purple)
             case .assisted:
-                Image(systemName: "person.2.wave.2")
+                Image(systemName: "sparkles")
                     .foregroundColor(.blue)
             case .direct:
                 Image(systemName: "arrow.left.arrow.right")
                     .foregroundColor(.green)
             }
+        }
+    }
+
+    var modeLabel: String {
+        switch conversation.mode {
+        case .anonymous: return "Anonymous"
+        case .assisted: return "AI Assisted"
+        case .direct: return "Direct"
         }
     }
 
@@ -169,8 +199,15 @@ struct ConversationView: View {
         guard !content.isEmpty else { return }
 
         Task {
-            await appState.sendMessage(content: content, to: conversation)
+            await appState.sendMessage(content: content, to: conversationDetails)
             newMessage = ""
+        }
+    }
+
+    func deleteCurrentConversation() {
+        let idToDelete = conversationDetails.conversation.id
+        Task {
+            await appState.deleteConversation(idToDelete)
         }
     }
 }

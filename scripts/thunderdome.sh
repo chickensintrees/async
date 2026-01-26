@@ -245,9 +245,10 @@ section "COMBATANTS"
 printf "  ${BLUE}┌─────────────────────────┐${RESET}     ${PURPLE}┌─────────────────────────┐${RESET}\n"
 printf "  ${BLUE}│${RESET}  ${WHITE}${BOLD}BILL${RESET} ${GRAY}(chickensintrees)${RESET} ${BLUE}│${RESET}     ${PURPLE}│${RESET}  ${WHITE}${BOLD}NOAH${RESET} ${GRAY}(ginzatron)${RESET}        ${PURPLE}│${RESET}\n"
 
-# Get commit counts for today
-BILL_TODAY=$(gh api repos/chickensintrees/async/commits --jq '[.[] | select(.author.login == "chickensintrees") | select(.commit.author.date | startswith("'"$(date +%Y-%m-%d)"'"))] | length' 2>/dev/null || echo "?")
-NOAH_TODAY=$(gh api repos/chickensintrees/async/commits --jq '[.[] | select(.author.login == "ginzatron") | select(.commit.author.date | startswith("'"$(date +%Y-%m-%d)"'"))] | length' 2>/dev/null || echo "?")
+# Get commit counts for today (local midnight converted to UTC for API accuracy)
+TODAY_START=$(date -j -f "%Y-%m-%d %H:%M:%S" "$(date +%Y-%m-%d) 00:00:00" +%s 2>/dev/null | xargs -I{} date -r {} -u +%Y-%m-%dT%H:%M:%SZ)
+BILL_TODAY=$(gh api "repos/chickensintrees/async/commits?author=chickensintrees&since=$TODAY_START" --jq 'length' 2>/dev/null || echo "?")
+NOAH_TODAY=$(gh api "repos/chickensintrees/async/commits?author=ginzatron&since=$TODAY_START" --jq 'length' 2>/dev/null || echo "?")
 
 printf "  ${BLUE}│${RESET}  Commits today: ${GREEN}$BILL_TODAY${RESET}       ${BLUE}│${RESET}     ${PURPLE}│${RESET}  Commits today: ${GREEN}$NOAH_TODAY${RESET}       ${PURPLE}│${RESET}\n"
 printf "  ${BLUE}└─────────────────────────┘${RESET}     ${PURPLE}└─────────────────────────┘${RESET}\n"

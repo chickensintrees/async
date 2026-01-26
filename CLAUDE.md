@@ -136,13 +136,36 @@ claude plugin install axiom
 ```
 
 Key skills for this project:
-- `/axiom:swiftui-layout` - Layout patterns
+- `/axiom:swiftui-layout` - Layout patterns (conversation lists, message bubbles)
 - `/axiom:swiftui-performance` - Performance optimization
 - `/axiom:swiftui-debugging` - Debug UI issues
 - `/axiom:swiftui-nav` - Navigation patterns
 - `/axiom:swiftdata` - SwiftData persistence
 
 The project's `.claude/settings.json` already enables this plugin - you just need to install it.
+
+### Load Axiom Skills During Thunderdome
+When running Protocol Thunderdome, if working on app UI, load relevant Axiom skills:
+```
+/skill axiom-swiftui-layout
+```
+
+### Messaging UI Patterns (Reference)
+Since no messenger-specific plugins exist, here are key SwiftUI patterns for chat apps:
+
+**Conversation List:**
+- `List` with `swipeActions` for delete/archive
+- Show participant names, last message preview, relative time
+- Unread indicators with badges
+
+**Message Bubbles:**
+- `HStack` with conditional `Spacer` for alignment
+- Different colors for sent vs received
+- `ScrollViewReader` for auto-scroll to bottom
+
+**Input Area:**
+- Fixed at bottom with `safeAreaInset`
+- Keyboard avoidance with `.ignoresSafeArea(.keyboard)`
 
 ## Technology Stack
 

@@ -104,8 +104,8 @@ struct MessagesView: View {
             Divider()
 
             // Conversation detail (right panel)
-            if let conversation = appState.selectedConversation {
-                ConversationView(conversation: conversation)
+            if let selected = appState.selectedConversation {
+                ConversationView(conversationDetails: selected)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 MessagesWelcomeView()
@@ -138,16 +138,25 @@ struct ConversationListPanel: View {
 
             Divider()
 
-            // List
+            // List with swipe-to-delete
             List(selection: $appState.selectedConversation) {
                 if appState.conversations.isEmpty {
                     Text("No conversations yet")
                         .foregroundColor(.secondary)
                         .italic()
                 } else {
-                    ForEach(appState.conversations) { conversation in
-                        ConversationRow(conversation: conversation)
-                            .tag(conversation)
+                    ForEach(appState.conversations) { convoDetails in
+                        ConversationRow(conversation: convoDetails)
+                            .tag(convoDetails)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await appState.deleteConversation(convoDetails.conversation.id)
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
                 }
             }
@@ -157,36 +166,128 @@ struct ConversationListPanel: View {
     }
 }
 
-// MARK: - Conversation Row
+// MARK: - Conversation Row (Slack-like design)
 
 struct ConversationRow: View {
-    let conversation: Conversation
+    let conversation: ConversationWithDetails
 
     var body: some View {
-        HStack {
-            modeIcon
-                .foregroundColor(modeColor)
-            VStack(alignment: .leading) {
-                Text(conversation.displayTitle)
-                    .font(.headline)
-                Text(conversation.mode.displayName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+        HStack(spacing: 10) {
+            // Avatar/icon
+            avatarView
+                .frame(width: 36, height: 36)
+
+            // Content
+            VStack(alignment: .leading, spacing: 2) {
+                // Title row: name + mode badge + time
+                HStack(spacing: 6) {
+                    Text(conversation.displayTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+
+                    // Mode badge (subtle, to distinguish same-person convos)
+                    modeBadge
+
+                    Spacer()
+
+                    Text(conversation.relativeTime)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+
+                // Last message preview
+                if let preview = conversation.lastMessagePreview {
+                    Text(preview)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("No messages yet")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
-    var modeIcon: Image {
-        switch conversation.mode {
+    @ViewBuilder
+    var modeBadge: some View {
+        let mode = conversation.conversation.mode
+        HStack(spacing: 2) {
+            modeIcon(mode)
+                .font(.system(size: 9))
+            Text(modeShortLabel(mode))
+                .font(.system(size: 9))
+        }
+        .foregroundColor(modeColor(mode))
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(modeColor(mode).opacity(0.15))
+        .cornerRadius(4)
+    }
+
+    func modeShortLabel(_ mode: ConversationMode) -> String {
+        switch mode {
+        case .direct: return "DM"
+        case .assisted: return "AI"
+        case .anonymous: return "Anon"
+        }
+    }
+
+    @ViewBuilder
+    var avatarView: some View {
+        let mode = conversation.conversation.mode
+
+        if conversation.participants.count == 1,
+           let participant = conversation.participants.first {
+            // Single participant - show their initial
+            Circle()
+                .fill(avatarColor(for: participant.displayName))
+                .overlay(
+                    Text(String(participant.displayName.prefix(1)).uppercased())
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                )
+        } else if conversation.participants.count > 1 {
+            // Group - show group icon
+            Circle()
+                .fill(Color.gray.opacity(0.3))
+                .overlay(
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                )
+        } else {
+            // No participants loaded yet - show mode icon
+            Circle()
+                .fill(modeColor(mode).opacity(0.2))
+                .overlay(
+                    modeIcon(mode)
+                        .font(.system(size: 14))
+                        .foregroundColor(modeColor(mode))
+                )
+        }
+    }
+
+    func avatarColor(for name: String) -> Color {
+        // Generate consistent color from name
+        let colors: [Color] = [.blue, .purple, .green, .orange, .pink, .teal]
+        let hash = abs(name.hashValue)
+        return colors[hash % colors.count]
+    }
+
+    func modeIcon(_ mode: ConversationMode) -> Image {
+        switch mode {
         case .anonymous: return Image(systemName: "eye.slash")
-        case .assisted: return Image(systemName: "person.2.wave.2")
+        case .assisted: return Image(systemName: "sparkles")
         case .direct: return Image(systemName: "arrow.left.arrow.right")
         }
     }
 
-    var modeColor: Color {
-        switch conversation.mode {
+    func modeColor(_ mode: ConversationMode) -> Color {
+        switch mode {
         case .anonymous: return .purple
         case .assisted: return .blue
         case .direct: return .green

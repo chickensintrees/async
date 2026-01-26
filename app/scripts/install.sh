@@ -15,6 +15,9 @@ swift build -c release
 echo "Copying binary to app bundle..."
 cp "$APP_DIR/.build/release/Async" "$APP_BUNDLE/Contents/MacOS/Async"
 
+echo "Copying app icon..."
+cp "$APP_DIR/Assets.xcassets/AppIcon.appiconset/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+
 echo "Closing running instance if any..."
 pkill -f "Async.app" 2>/dev/null || true
 sleep 1

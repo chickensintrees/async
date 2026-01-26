@@ -27,8 +27,8 @@ enum AppTab: String, CaseIterable {
 class AppState: ObservableObject {
     @Published var selectedTab: AppTab = .messages
     @Published var currentUser: User?
-    @Published var conversations: [Conversation] = []
-    @Published var selectedConversation: Conversation?
+    @Published var conversations: [ConversationWithDetails] = []
+    @Published var selectedConversation: ConversationWithDetails?
     @Published var messages: [Message] = []
     @Published var filterMode: FilterMode = .all
     @Published var showNewConversation = false
@@ -160,14 +160,64 @@ class AppState: ObservableObject {
                     .execute()
                     .value
 
-                self.conversations = convos
+                // Load details for each conversation
+                var result: [ConversationWithDetails] = []
+                for convo in convos {
+                    let details = await loadConversationDetails(convo, currentUserId: user.id)
+                    result.append(details)
+                }
+                self.conversations = result
             }
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
         }
     }
 
-    func createConversation(with participantIds: [UUID], mode: ConversationMode, title: String?) async -> Conversation? {
+    /// Load participants and last message for a conversation
+    private func loadConversationDetails(_ conversation: Conversation, currentUserId: UUID) async -> ConversationWithDetails {
+        var participants: [User] = []
+        var lastMessage: Message? = nil
+
+        do {
+            // Get all participants
+            let parts: [ConversationParticipant] = try await supabase
+                .from("conversation_participants")
+                .select()
+                .eq("conversation_id", value: conversation.id.uuidString)
+                .execute()
+                .value
+
+            // Load user info for participants (excluding current user)
+            for part in parts where part.userId != currentUserId {
+                if let user = await loadUser(byId: part.userId) {
+                    participants.append(user)
+                }
+            }
+
+            // Get last message
+            let msgs: [Message] = try await supabase
+                .from("messages")
+                .select()
+                .eq("conversation_id", value: conversation.id.uuidString)
+                .order("created_at", ascending: false)
+                .limit(1)
+                .execute()
+                .value
+
+            lastMessage = msgs.first
+        } catch {
+            // Silently fail - we'll show conversation without details
+        }
+
+        return ConversationWithDetails(
+            conversation: conversation,
+            participants: participants,
+            lastMessage: lastMessage,
+            unreadCount: 0  // TODO: implement unread tracking
+        )
+    }
+
+    func createConversation(with participantIds: [UUID], mode: ConversationMode, title: String?) async -> ConversationWithDetails? {
         guard let user = currentUser else { return nil }
         isLoading = true
         defer { isLoading = false }
@@ -208,16 +258,59 @@ class AppState: ObservableObject {
             }
 
             await loadConversations()
-            return conversation
+            // Return the newly created conversation with details
+            return conversations.first { $0.conversation.id == conversation.id }
         } catch {
             errorMessage = "Failed to create conversation: \(error.localizedDescription)"
             return nil
         }
     }
 
+    /// Delete a conversation and its messages
+    func deleteConversation(_ conversationId: UUID) async {
+        // Optimistic UI update - remove from list immediately
+        let previousConversations = conversations
+        let previousSelection = selectedConversation
+
+        conversations.removeAll { $0.conversation.id == conversationId }
+        if selectedConversation?.conversation.id == conversationId {
+            selectedConversation = nil
+            messages = []
+        }
+
+        do {
+            // Delete messages first (foreign key constraint)
+            try await supabase
+                .from("messages")
+                .delete()
+                .eq("conversation_id", value: conversationId.uuidString)
+                .execute()
+
+            // Delete participants
+            try await supabase
+                .from("conversation_participants")
+                .delete()
+                .eq("conversation_id", value: conversationId.uuidString)
+                .execute()
+
+            // Delete conversation
+            try await supabase
+                .from("conversations")
+                .delete()
+                .eq("id", value: conversationId.uuidString)
+                .execute()
+
+        } catch {
+            // Rollback on failure
+            conversations = previousConversations
+            selectedConversation = previousSelection
+            errorMessage = "Failed to delete: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Messages
 
-    func loadMessages(for conversation: Conversation) async {
+    func loadMessages(for conversationDetails: ConversationWithDetails) async {
         isLoading = true
         defer { isLoading = false }
 
@@ -225,7 +318,7 @@ class AppState: ObservableObject {
             let msgs: [Message] = try await supabase
                 .from("messages")
                 .select()
-                .eq("conversation_id", value: conversation.id.uuidString)
+                .eq("conversation_id", value: conversationDetails.conversation.id.uuidString)
                 .order("created_at", ascending: true)
                 .execute()
                 .value
@@ -236,7 +329,8 @@ class AppState: ObservableObject {
         }
     }
 
-    func sendMessage(content: String, to conversation: Conversation) async {
+    func sendMessage(content: String, to conversationDetails: ConversationWithDetails) async {
+        let conversation = conversationDetails.conversation
         guard let user = currentUser else { return }
 
         do {
@@ -302,7 +396,7 @@ class AppState: ObservableObject {
                 .execute()
 
             // Reload messages
-            await loadMessages(for: conversation)
+            await loadMessages(for: conversationDetails)
         } catch {
             errorMessage = "Failed to send message: \(error.localizedDescription)"
         }

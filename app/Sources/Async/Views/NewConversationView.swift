@@ -209,6 +209,21 @@ struct NewConversationView: View {
         guard let recipient = foundUser else { return }
 
         Task {
+            // Check if conversation with this person already exists (same mode, no title)
+            if title.isEmpty {
+                if let existing = appState.conversations.first(where: { convo in
+                    convo.participants.contains(where: { $0.id == recipient.id }) &&
+                    convo.conversation.mode == selectedMode &&
+                    (convo.conversation.title == nil || convo.conversation.title?.isEmpty == true)
+                }) {
+                    // Open existing conversation instead of creating duplicate
+                    appState.selectedConversation = existing
+                    dismiss()
+                    return
+                }
+            }
+
+            // Create new conversation
             if let conversation = await appState.createConversation(
                 with: [recipient.id],
                 mode: selectedMode,
