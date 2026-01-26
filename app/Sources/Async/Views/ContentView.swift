@@ -24,6 +24,10 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showNewConversation) {
             NewConversationView()
         }
+        .sheet(isPresented: $appState.showAdminPortal) {
+            AdminPortalView()
+                .frame(minWidth: 900, minHeight: 600)
+        }
         .alert("Error", isPresented: .init(
             get: { appState.errorMessage != nil },
             set: { if !$0 { appState.errorMessage = nil } }
@@ -58,7 +62,12 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .frame(minWidth: 200)
         .toolbar {
-            ToolbarItem {
+            ToolbarItemGroup {
+                Button(action: { appState.showAdminPortal = true }) {
+                    Image(systemName: "person.2.badge.gearshape")
+                }
+                .help("Admin Portal")
+
                 Button(action: { appState.showNewConversation = true }) {
                     Image(systemName: "plus")
                 }

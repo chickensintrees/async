@@ -37,6 +37,13 @@ struct AsyncApp: App {
                 Button("Show Unread") {
                     appState.filterMode = .unread
                 }
+
+                Divider()
+
+                Button("Admin Portal") {
+                    appState.showAdminPortal = true
+                }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
             }
 
             // Help menu addition
