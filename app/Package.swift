@@ -19,6 +19,11 @@ let package = Package(
                 .product(name: "Supabase", package: "supabase-swift")
             ],
             path: "Sources/Async"
+        ),
+        .testTarget(
+            name: "AsyncTests",
+            dependencies: ["Async"],
+            path: "Tests/AsyncTests"
         )
     ]
 )
