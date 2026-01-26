@@ -230,33 +230,41 @@ struct DashboardPanel<Content: View>: View {
 
 struct ActivityPanel: View {
     @EnvironmentObject var viewModel: DashboardViewModel
+    @EnvironmentObject var gameVM: GamificationViewModel
 
     var body: some View {
-        DashboardPanel(title: "Activity Feed", icon: "bolt.fill") {
-            if viewModel.events.isEmpty {
-                Text("No recent activity")
+        DashboardPanel(title: "Score Events", icon: "bolt.fill") {
+            if gameVM.gameState.events.isEmpty {
+                Text("No scoring events yet")
                     .font(.body)
                     .foregroundColor(DesignTokens.textMuted)
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
                 VStack(spacing: 4) {
-                    ForEach(viewModel.events.prefix(8)) { event in
-                        HStack(spacing: 8) {
-                            UserIndicator(username: event.actor.login)
+                    ForEach(gameVM.gameState.events.prefix(8)) { event in
+                        Button(action: {
+                            if let url = event.relatedUrl {
+                                viewModel.openInBrowser(url)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                UserIndicator(username: event.oderId)
 
-                            Text(event.description)
-                                .font(.body)
-                                .foregroundColor(DesignTokens.textPrimary)
-                                .lineLimit(1)
+                                Text(event.description)
+                                    .font(.body)
+                                    .foregroundColor(event.points >= 0 ? DesignTokens.accentGreen : DesignTokens.accentRed)
+                                    .lineLimit(1)
 
-                            Spacer()
+                                Spacer()
 
-                            Text(event.created_at.relativeString)
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textMuted)
+                                Text(event.timestamp.relativeString)
+                                    .font(.caption)
+                                    .foregroundColor(DesignTokens.textMuted)
+                            }
+                            .padding(.vertical, 2)
                         }
-                        .padding(.vertical, 2)
+                        .buttonStyle(.plain)
                     }
                 }
             }
