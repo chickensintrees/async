@@ -93,7 +93,9 @@ final class ConversationTests: XCTestCase {
 
     func testDisplayTitle_nilTitle() {
         let conversation = makeConversation(title: nil)
-        XCTAssertEqual(conversation.displayTitle, "Conversation")
+        // When title is nil, displayTitle falls back to mode + date
+        // Note: ConversationWithDetails.displayTitle shows participant names instead
+        XCTAssertTrue(conversation.displayTitle.hasPrefix("Assisted (With Agent)"))
     }
 
     func testConversationHashable() {

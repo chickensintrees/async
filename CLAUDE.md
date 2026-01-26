@@ -458,7 +458,15 @@ If any doc is outdated, update it before ending the session.
 
 When user says **"debrief"**, **"end session"**, or **"save and quit"**:
 
-### 1. Commit All Changes
+### 1. Run Tests (MANDATORY)
+```bash
+xcodebuild test -scheme Async -destination 'platform=macOS' 2>&1 | tail -20
+```
+- **All tests MUST pass** before committing
+- If any test fails, **fix it first** - do not commit with failing tests
+- Only exception: explicitly acknowledged pre-existing issues (document in session log)
+
+### 2. Commit All Changes
 ```bash
 git status
 git add -A
@@ -466,7 +474,7 @@ git commit -m "Session: brief description of work done"
 git push origin main
 ```
 
-### 2. Documentation Review (MANDATORY)
+### 3. Documentation Review (MANDATORY)
 
 **Before completing debrief, review and update these files:**
 
@@ -490,12 +498,12 @@ git push origin main
 
 **GitHub is the single source of truth. All docs must reflect reality. If in doubt, update it.**
 
-### 3. Run Thunderdome
+### 4. Run Thunderdome
 ```bash
 ./scripts/thunderdome.sh
 ```
 
-### 4. Create Session Log
+### 5. Create Session Log
 Write a session log to `~/.claude/session-logs/YYYY-MM-DD-topic.md` with:
 - What happened
 - What was built/changed
@@ -503,8 +511,9 @@ Write a session log to `~/.claude/session-logs/YYYY-MM-DD-topic.md` with:
 - Next steps
 - Files changed
 
-### 5. Confirm Safe to Close
+### 6. Confirm Safe to Close
 Verify:
+- [ ] All tests passing (47/47)
 - [ ] All changes committed and pushed
 - [ ] Documentation updated
 - [ ] Thunderdome shows clean status
