@@ -16,7 +16,8 @@ struct MainView: View {
                 }
             }
             .listStyle(.sidebar)
-            .frame(minWidth: 150)
+            .frame(minWidth: 180)
+            .padding(.leading, 4)
         } detail: {
             switch appState.selectedTab {
             case .messages:

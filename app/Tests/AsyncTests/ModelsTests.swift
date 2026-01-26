@@ -110,14 +110,16 @@ final class ConversationTests: XCTestCase {
 
     private func makeConversation(
         id: UUID = UUID(),
-        title: String? = nil
+        title: String? = nil,
+        createdAt: Date = Date(timeIntervalSince1970: 0),
+        updatedAt: Date = Date(timeIntervalSince1970: 0)
     ) -> Conversation {
         Conversation(
             id: id,
             mode: .assisted,
             title: title,
-            createdAt: Date(),
-            updatedAt: Date()
+            createdAt: createdAt,
+            updatedAt: updatedAt
         )
     }
 }
