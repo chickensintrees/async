@@ -17,6 +17,34 @@ This is a collaborative project. Before building features:
 2. Get input from collaborators (ginzatron)
 3. Reach consensus, then build
 
+### Test-With-Code Rule (GAMIFICATION CRITICAL)
+**CRITICAL**: New code files MUST have corresponding tests in the SAME commit to avoid "Untested code dump" penalties (-70 points).
+
+**Before committing new files:**
+1. Check if new `.swift` files were created in `Sources/`
+2. If yes, write tests in `Tests/AsyncTests/` for testable logic
+3. Include tests in the same commit as the new code
+
+**What needs tests:**
+- New model/utility files with testable functions
+- Extensions with non-trivial logic
+- Anything with business logic or data transformation
+
+**What doesn't need tests:**
+- Pure SwiftUI views (UI-only, no testable logic)
+- Simple constants/enums with no methods
+- Protocol definitions without implementations
+
+**Commit pattern for new features:**
+```bash
+# WRONG: Separate commits = code dump penalty
+git commit -m "Add DesignSystem.swift"        # -70 points!
+git commit -m "Add DesignSystem tests"        # Too late
+
+# RIGHT: Single commit with code + tests
+git commit -m "Add DesignSystem with tests"   # +50 points!
+```
+
 ### Multi-Agent Coordination
 **CRITICAL**: Multiple Claude Code agents may be working on this codebase simultaneously. This section defines how agents coordinate to prevent conflicts and maintain code quality.
 
