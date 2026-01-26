@@ -64,6 +64,7 @@ struct AsyncApp: App {
             UnifiedSettingsView()
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
+                .environmentObject(gameVM)
         }
     }
 }

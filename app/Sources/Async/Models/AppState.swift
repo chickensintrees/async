@@ -193,16 +193,59 @@ class AppState: ObservableObject {
         guard let user = currentUser else { return }
 
         do {
+            var processedContent: String? = nil
+            var agentContextJson: String? = nil
+
+            // Process through AI mediator for non-direct modes
+            if conversation.mode != .direct {
+                do {
+                    // Get other participant name for context
+                    let recipientName = conversation.title ?? "Recipient"
+
+                    // Load agent context
+                    let agentContext = try await MediatorService.shared.loadAgentContext(for: conversation.id)
+
+                    // Process the message
+                    let processed = try await MediatorService.shared.processMessage(
+                        rawContent: content,
+                        mode: conversation.mode,
+                        senderName: user.displayName,
+                        recipientName: recipientName,
+                        conversationHistory: messages,
+                        agentContext: agentContext
+                    )
+
+                    processedContent = processed.content
+
+                    // Store processing metadata as JSON
+                    var contextDict: [String: Any] = [:]
+                    if let summary = processed.summary { contextDict["summary"] = summary }
+                    if let sentiment = processed.sentiment { contextDict["sentiment"] = sentiment }
+                    if let actions = processed.actionItems { contextDict["action_items"] = actions }
+                    if !contextDict.isEmpty {
+                        agentContextJson = String(data: try JSONSerialization.data(withJSONObject: contextDict), encoding: .utf8)
+                    }
+                } catch {
+                    // Log error but still send raw message
+                    print("AI processing failed: \(error.localizedDescription)")
+                    // For anonymous mode, we should probably not send without processing
+                    if conversation.mode == .anonymous {
+                        errorMessage = "AI processing failed. Cannot send anonymous message."
+                        return
+                    }
+                }
+            }
+
             let message = Message(
                 id: UUID(),
                 conversationId: conversation.id,
                 senderId: user.id,
                 contentRaw: content,
-                contentProcessed: nil,  // AI will process this
+                contentProcessed: processedContent,
                 isFromAgent: false,
-                agentContext: nil,
+                agentContext: agentContextJson,
                 createdAt: Date(),
-                processedAt: nil,
+                processedAt: processedContent != nil ? Date() : nil,
                 rawVisibleTo: nil
             )
 
@@ -213,8 +256,6 @@ class AppState: ObservableObject {
 
             // Reload messages
             await loadMessages(for: conversation)
-
-            // TODO: Trigger AI processing based on conversation mode
         } catch {
             errorMessage = "Failed to send message: \(error.localizedDescription)"
         }

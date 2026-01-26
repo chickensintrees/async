@@ -180,6 +180,92 @@ cd dashboard
 - PRs require review before merge
 - Major decisions documented in openspec/
 
+## AI-Managed Code Review & Merging
+
+**IMPORTANT FOR ALL CLAUDE CODE INSTANCES**: The AI (STEF/Claude) manages all code review and merging for this project. This applies whether you're working with Bill or Noah.
+
+### Branch Strategy
+- `main` - Production-ready code
+- `feature/*` - Feature branches (e.g., `feature/admin-portal`)
+- All feature work happens on branches, merged via PR
+
+### Workflow for BOTH Contributors
+
+#### When Your Human Writes Code:
+1. **Create a feature branch** if working on something substantial
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+2. **Commit with good messages** (affects gamification score!)
+3. **Push to origin** when ready for review
+   ```bash
+   git push -u origin feature/your-feature-name
+   ```
+4. **Tell the AI to create a PR** or create one yourself
+
+#### When AI Reviews Code:
+The AI (you, reading this) should:
+1. **Fetch the PR/branch**
+   ```bash
+   gh pr list
+   gh pr view <number>
+   gh pr diff <number>
+   ```
+2. **Review for**:
+   - Code quality and style consistency
+   - Test coverage (remember: untested code = negative points!)
+   - Security issues (OWASP top 10)
+   - Spec compliance (check `openspec/specs/`)
+3. **Leave comments** on the PR
+   ```bash
+   gh pr comment <number> --body "Review comments here"
+   ```
+4. **Approve or request changes**
+   ```bash
+   gh pr review <number> --approve --body "LGTM"
+   gh pr review <number> --request-changes --body "Please fix X"
+   ```
+
+#### When AI Merges Code:
+Once approved:
+```bash
+# Merge with merge commit (preserves history)
+gh pr merge <number> --merge
+
+# Or squash (cleaner history for small PRs)
+gh pr merge <number> --squash
+
+# Delete the branch after merge
+gh pr merge <number> --merge --delete-branch
+```
+
+### Conflict Resolution
+If there are merge conflicts:
+1. **Notify the human** about the conflict
+2. **Fetch latest main** into the feature branch
+   ```bash
+   git fetch origin
+   git checkout feature/branch-name
+   git merge origin/main
+   ```
+3. **Resolve conflicts** (with human guidance if needed)
+4. **Push the resolution**
+5. **Complete the merge**
+
+### Cross-Contributor Sync
+When Bill pushes to main and Noah has a feature branch (or vice versa):
+1. AI should **proactively check for divergence**
+2. **Notify the other contributor** if their branch is behind
+3. **Suggest rebasing or merging** main into their branch
+
+### PR Checklist (AI Should Verify)
+- [ ] Code compiles/builds
+- [ ] Tests pass (run `swift test` for app/)
+- [ ] No secrets committed
+- [ ] Commit messages are descriptive
+- [ ] Related issue linked (if applicable)
+- [ ] Spec updated (if behavior changed)
+
 ## Protocol Thunderdome (Scrum Master Routine)
 
 STEF acts as AI scrum master for this project. When Bill says **"Protocol Thunderdome"** or **"run scrum"**, execute this routine:
