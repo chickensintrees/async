@@ -298,6 +298,38 @@ gh api repos/chickensintrees/async/branches --jq '.[].name' 2>/dev/null | while 
     fi
 done
 
+# ─────────────────────────────────────────────────────────────────────────────
+section "DOC STALENESS"
+
+# Check when key docs were last modified vs last code change
+LAST_CODE_COMMIT=$(git log -1 --format="%H" -- "app/" 2>/dev/null)
+LAST_CODE_DATE=$(git log -1 --format="%ci" -- "app/" 2>/dev/null | cut -d' ' -f1)
+
+check_doc_staleness() {
+    local doc="$1"
+    local name="$2"
+    if [ -f "$doc" ]; then
+        local doc_date=$(git log -1 --format="%ci" -- "$doc" 2>/dev/null | cut -d' ' -f1)
+        local doc_age=$(( ($(date +%s) - $(date -j -f "%Y-%m-%d" "$doc_date" +%s 2>/dev/null || echo 0)) / 86400 ))
+
+        if [ "$doc_age" -gt 7 ]; then
+            status_warn "$name: $doc_age days old"
+            WARNINGS+=("$name not updated in $doc_age days")
+        elif [ "$doc_age" -gt 3 ]; then
+            status_info "$name: $doc_age days old"
+        else
+            status_ok "$name: updated $doc_date"
+        fi
+    else
+        status_warn "$name: FILE MISSING"
+        WARNINGS+=("$name is missing")
+    fi
+}
+
+check_doc_staleness "README.md" "README"
+check_doc_staleness "CLAUDE.md" "CLAUDE.md"
+check_doc_staleness "openspec/project.md" "openspec/project"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FINAL REPORT
 # ══════════════════════════════════════════════════════════════════════════════
