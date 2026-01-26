@@ -443,14 +443,29 @@ git commit -m "Session: brief description of work done"
 git push origin main
 ```
 
-### 2. Documentation Review
-Check and update ALL documentation to reflect any changes made:
-- Did we add new features? → Update README.md
-- Did we change architecture? → Update CLAUDE.md, openspec/project.md
-- Did we add database tables/migrations? → Update backend/database/README.md
-- Did we change workflows? → Update openspec/AGENTS.md, specs/
+### 2. Documentation Review (MANDATORY)
 
-**GitHub is the single source of truth. All docs must reflect reality.**
+**Before completing debrief, review and update these files:**
+
+#### README.md Checklist
+- [ ] "Current State" section reflects actual UI/UX
+- [ ] Tech stack is accurate
+- [ ] Repository structure matches reality
+- [ ] Development instructions work
+- [ ] Test count is current
+
+#### CLAUDE.md Checklist
+- [ ] Multi-agent coordination is current
+- [ ] Debrief protocol is current
+- [ ] Open questions updated (resolved/new)
+- [ ] SwiftUI best practices reflect learnings
+
+#### Other Docs (if relevant)
+- `openspec/project.md` - Tech stack, file locations
+- `openspec/AGENTS.md` - Current domains, protocols
+- `backend/database/README.md` - Tables, migrations
+
+**GitHub is the single source of truth. All docs must reflect reality. If in doubt, update it.**
 
 ### 3. Run Thunderdome
 ```bash
