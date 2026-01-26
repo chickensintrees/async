@@ -71,6 +71,7 @@ struct RepoEvent: Codable, Identifiable {
     struct Payload: Codable {
         let action: String?
         let ref: String?
+        let size: Int?  // Number of commits (if included by API)
         let commits: [PushCommit]?
 
         struct PushCommit: Codable {
@@ -82,9 +83,13 @@ struct RepoEvent: Codable, Identifiable {
     var description: String {
         switch type {
         case "PushEvent":
-            let count = payload?.commits?.count ?? 0
+            let count = payload?.commits?.count ?? payload?.size ?? 0
             let branch = payload?.ref?.replacingOccurrences(of: "refs/heads/", with: "") ?? "main"
-            return "pushed \(count) commit\(count == 1 ? "" : "s") to \(branch)"
+            if count > 0 {
+                return "pushed \(count) commit\(count == 1 ? "" : "s") to \(branch)"
+            } else {
+                return "pushed to \(branch)"
+            }
         case "IssuesEvent":
             return "\(payload?.action ?? "updated") issue"
         case "PullRequestEvent":

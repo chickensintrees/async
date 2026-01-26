@@ -5,6 +5,7 @@ struct AsyncApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var dashboardVM = DashboardViewModel()
     @StateObject private var gameVM = GamificationViewModel()
+    @StateObject private var kanbanVM = KanbanViewModel()
 
     var body: some Scene {
         WindowGroup {
@@ -12,6 +13,7 @@ struct AsyncApp: App {
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
                 .environmentObject(gameVM)
+                .environmentObject(kanbanVM)
         }
         .windowStyle(.titleBar)
         .commands {
@@ -46,6 +48,7 @@ struct AsyncApp: App {
                     Task {
                         await appState.loadConversations()
                         await dashboardVM.refreshAll()
+                        await kanbanVM.refresh()
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
@@ -71,6 +74,7 @@ struct AsyncApp: App {
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
                 .environmentObject(gameVM)
+                .environmentObject(kanbanVM)
         }
     }
 }

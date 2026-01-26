@@ -3,6 +3,7 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var dashboardVM: DashboardViewModel
+    @EnvironmentObject var kanbanVM: KanbanViewModel
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -27,7 +28,7 @@ struct MainView: View {
             case .dashboard:
                 DashboardView()
             case .backlog:
-                BacklogView()
+                KanbanBoardView()
             case .admin:
                 AdminPortalView()
             }
