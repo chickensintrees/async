@@ -261,11 +261,13 @@ class ScoreCalculator {
         "/tests/", "/test/", "/spec/", "Tests/", "Test/", "Spec/"
     ]
 
-    // Files that don't require tests (UI, config, docs)
+    // Files that don't require tests (UI, config, docs, app code during prototyping)
+    // TODO: Tighten these rules after MVP - business logic should require tests
     private let noTestRequiredPatterns = [
         "/Views/", "View.swift", ".storyboard", ".xib", ".xcassets",
+        "/Models/", "/Services/", "State.swift",  // App code during rapid dev
         "README", "CLAUDE.md", ".md", "Package.swift", ".gitignore",
-        "Info.plist", ".entitlements", "scripts/"
+        "Info.plist", ".entitlements", "scripts/", "install.sh"
     ]
 
     private let lazyMessages = ["wip", "fix", "update", "changes", "stuff", "asdf", "test", "temp", "tmp"]

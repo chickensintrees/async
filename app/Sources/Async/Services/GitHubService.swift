@@ -172,6 +172,97 @@ class GitHubService {
             return false
         }
     }
+
+    // MARK: - Write Operations
+
+    /// Execute a GitHub API request with a specific HTTP method
+    func execute(_ endpoint: String, method: String, body: [String: Any]? = nil) async throws {
+        let process = Process()
+        let pipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ghPath)
+
+        var args = ["api", endpoint, "-X", method]
+        if let body = body {
+            for (key, value) in body {
+                args.append("-f")
+                args.append("\(key)=\(value)")
+            }
+        }
+        process.arguments = args
+        process.standardOutput = pipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
+                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        }
+    }
+
+    /// Add a label to an issue
+    func addLabel(issueNumber: Int, label: String) async throws {
+        try await execute(
+            "repos/\(repo)/issues/\(issueNumber)/labels",
+            method: "POST",
+            body: ["labels": label]
+        )
+    }
+
+    /// Remove a label from an issue
+    func removeLabel(issueNumber: Int, label: String) async throws {
+        try await execute(
+            "repos/\(repo)/issues/\(issueNumber)/labels/\(label)",
+            method: "DELETE"
+        )
+    }
+
+    /// Update an issue's title and/or body
+    func updateIssue(issueNumber: Int, title: String?, body: String?) async throws {
+        var updates: [String: Any] = [:]
+        if let title = title { updates["title"] = title }
+        if let body = body { updates["body"] = body }
+
+        guard !updates.isEmpty else { return }
+
+        try await execute(
+            "repos/\(repo)/issues/\(issueNumber)",
+            method: "PATCH",
+            body: updates
+        )
+    }
+
+    /// Fetch all open issues (for Kanban board)
+    func fetchAllOpenIssues() async throws -> [KanbanIssue] {
+        try await fetch("repos/\(repo)/issues?state=open&per_page=100")
+    }
+
+    /// Create a label if it doesn't exist
+    func createLabelIfNeeded(name: String, color: String, description: String) async throws {
+        // Try to get the label first
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ghPath)
+        process.arguments = ["api", "repos/\(repo)/labels/\(name)"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        // If label doesn't exist (404), create it
+        if process.terminationStatus != 0 {
+            try await execute(
+                "repos/\(repo)/labels",
+                method: "POST",
+                body: ["name": name, "color": color, "description": description]
+            )
+        }
+    }
 }
 
 // MARK: - Dashboard View Model
