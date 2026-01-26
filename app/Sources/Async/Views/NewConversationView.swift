@@ -1,62 +1,78 @@
 import SwiftUI
 import AppKit
 
-// NSTextField wrapper for reliable focus in sheets
-struct FocusableTextField: NSViewRepresentable {
-    var placeholder: String
-    @Binding var text: String
-    var onSubmit: (() -> Void)?
-
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField()
-        textField.placeholderString = placeholder
-        textField.delegate = context.coordinator
-        textField.bezelStyle = .roundedBezel
-        textField.focusRingType = .exterior
-        return textField
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        nsView.stringValue = text
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: FocusableTextField
-
-        init(_ parent: FocusableTextField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            if let textField = obj.object as? NSTextField {
-                parent.text = textField.stringValue
-            }
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit?()
-                return true
-            }
-            return false
-        }
-    }
-}
-
 struct NewConversationView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) var dismiss
 
-    @State private var recipientHandle = ""
+    @State private var selectedParticipants: Set<UUID> = []
+    @State private var allContacts: [User] = []
     @State private var title = ""
     @State private var selectedMode: ConversationMode = .assisted
-    @State private var foundUser: User?
-    @State private var isSearching = false
-    @State private var searchError: String?
+    @State private var isLoading = true
+    @State private var searchText = ""
+    @State private var modeWarning: String?
+
+    // Filter out current user from contacts
+    var availableContacts: [User] {
+        let currentUserId = appState.currentUser?.id
+        return allContacts.filter { $0.id != currentUserId }
+    }
+
+    var filteredContacts: [User] {
+        if searchText.isEmpty { return availableContacts }
+        return availableContacts.filter { contact in
+            contact.displayName.localizedCaseInsensitiveContains(searchText) ||
+            (contact.githubHandle?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
+    var agents: [User] { filteredContacts.filter { $0.isAgent } }
+    var humans: [User] { filteredContacts.filter { $0.isHuman } }
+
+    var selectedUsers: [User] {
+        allContacts.filter { selectedParticipants.contains($0.id) }
+    }
+
+    var hasSelectedAgent: Bool {
+        selectedUsers.contains { $0.isAgent }
+    }
+
+    var hasSelectedHuman: Bool {
+        selectedUsers.contains { $0.isHuman }
+    }
+
+    // Computed participants based on mode rules
+    var participantsForConversation: [UUID] {
+        var participants = Array(selectedParticipants)
+
+        switch selectedMode {
+        case .direct:
+            // Direct mode: remove any agents
+            participants = participants.filter { id in
+                allContacts.first { $0.id == id }?.isHuman == true
+            }
+        case .anonymous:
+            // Anonymous mode: ensure STEF is included
+            if !participants.contains(AppState.stefAgentId) {
+                participants.append(AppState.stefAgentId)
+            }
+        case .assisted:
+            // No changes needed
+            break
+        }
+
+        return participants
+    }
+
+    var canCreate: Bool {
+        let finalParticipants = participantsForConversation
+        // Need at least one participant other than potential auto-added agents
+        let hasHumanRecipient = finalParticipants.contains { id in
+            allContacts.first { $0.id == id }?.isHuman == true
+        }
+        return !selectedParticipants.isEmpty && (hasHumanRecipient || selectedMode != .anonymous)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,97 +90,163 @@ struct NewConversationView: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Recipient Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recipient")
-                            .font(.headline)
+            // Search bar
+            SearchBar(text: $searchText, placeholder: "Search contacts...")
+                .padding(.horizontal)
+                .padding(.vertical, 8)
 
-                        HStack {
-                            Text("GitHub username")
-                                .frame(width: 120, alignment: .leading)
-                            FocusableTextField(placeholder: "", text: $recipientHandle) {
-                                searchUser()
+            // Selected participants chips
+            if !selectedParticipants.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(selectedUsers) { user in
+                            ParticipantChip(contact: user) {
+                                selectedParticipants.remove(user.id)
+                                updateModeWarning()
                             }
-                            .frame(height: 24)
-                            Button("Find") {
-                                searchUser()
-                            }
-                            .disabled(recipientHandle.isEmpty || isSearching)
-                        }
-
-                        if isSearching {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else if let user = foundUser {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                                Text("Found: \(user.displayName)")
-                                Text("(@\(user.githubHandle ?? ""))")
-                                    .foregroundColor(.secondary)
-                            }
-                        } else if let error = searchError {
-                            HStack {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.red)
-                                Text(error)
-                            }
-                        }
-
-                        Button("Select ginzatron") {
-                            recipientHandle = "ginzatron"
-                            searchUser()
-                        }
-                        .buttonStyle(.link)
-                    }
-
-                    Divider()
-
-                    // Title Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Conversation Title (Optional)")
-                            .font(.headline)
-
-                        HStack {
-                            Text("e.g., Project Discussion")
-                                .frame(width: 160, alignment: .leading)
-                                .foregroundColor(.secondary)
-                            FocusableTextField(placeholder: "", text: $title)
-                                .frame(height: 24)
                         }
                     }
+                    .padding(.horizontal)
+                }
+                .frame(height: 36)
 
-                    Divider()
+                Divider()
+            }
 
-                    // Mode Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Communication Mode")
-                            .font(.headline)
-
-                        Picker("Mode", selection: $selectedMode) {
-                            ForEach(ConversationMode.allCases, id: \.self) { mode in
-                                VStack(alignment: .leading) {
-                                    Text(mode.displayName)
-                                    Text(mode.description)
+            if isLoading {
+                ProgressView("Loading contacts...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // Contact picker
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Agents section
+                        if !agents.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "sparkles")
+                                        .foregroundColor(.purple)
+                                    Text("AI Agents")
                                         .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.purple)
+                                }
+                                .padding(.bottom, 4)
+
+                                ForEach(agents) { contact in
+                                    ParticipantSelectRow(
+                                        contact: contact,
+                                        isSelected: selectedParticipants.contains(contact.id),
+                                        onToggle: { toggleParticipant(contact.id) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // People section
+                        if !humans.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.2.fill")
+                                        .foregroundColor(.blue)
+                                    Text("People")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.blue)
+                                }
+                                .padding(.bottom, 4)
+
+                                ForEach(humans) { contact in
+                                    ParticipantSelectRow(
+                                        contact: contact,
+                                        isSelected: selectedParticipants.contains(contact.id),
+                                        onToggle: { toggleParticipant(contact.id) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // No results
+                        if !searchText.isEmpty && agents.isEmpty && humans.isEmpty {
+                            HStack {
+                                Spacer()
+                                VStack(spacing: 8) {
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.title2)
+                                        .foregroundColor(.secondary)
+                                    Text("No contacts match \"\(searchText)\"")
                                         .foregroundColor(.secondary)
                                 }
-                                .tag(mode)
+                                Spacer()
+                            }
+                            .padding(.vertical, 20)
+                        }
+
+                        Divider()
+                            .padding(.vertical, 8)
+
+                        // Title Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Title (Optional)")
+                                .font(.headline)
+
+                            TextField("e.g., Project Discussion", text: $title)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        Divider()
+                            .padding(.vertical, 8)
+
+                        // Mode Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Communication Mode")
+                                .font(.headline)
+
+                            Picker("Mode", selection: $selectedMode) {
+                                ForEach(ConversationMode.allCases, id: \.self) { mode in
+                                    VStack(alignment: .leading) {
+                                        Text(mode.displayName)
+                                        Text(mode.description)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .tag(mode)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                            .labelsHidden()
+                            .onChange(of: selectedMode) { _, _ in
+                                updateModeWarning()
+                            }
+
+                            // Mode warning
+                            if let warning = modeWarning {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                    Text(warning)
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                }
+                                .padding(.top, 4)
                             }
                         }
-                        .pickerStyle(.radioGroup)
-                        .labelsHidden()
                     }
+                    .padding()
                 }
-                .padding()
             }
 
             Divider()
 
             // Actions
             HStack {
+                // Participant count
+                if !selectedParticipants.isEmpty {
+                    Text("\(selectedParticipants.count) participant\(selectedParticipants.count == 1 ? "" : "s") selected")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Spacer()
 
                 Button("Cancel") {
@@ -176,43 +258,62 @@ struct NewConversationView: View {
                     createConversation()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(foundUser == nil)
+                .disabled(!canCreate)
                 .keyboardShortcut(.return)
             }
             .padding()
         }
-        .frame(width: 500, height: 550)
-    }
-
-    func searchUser() {
-        isSearching = true
-        searchError = nil
-        foundUser = nil
-
-        Task {
-            // First check if user exists
-            if let user = await appState.findUser(byGithubHandle: recipientHandle) {
-                foundUser = user
-            } else {
-                // User doesn't exist yet - create them
-                // For MVP, we'll create a placeholder user
-                searchError = "User not found. They need to open Async first to be added."
-
-                // Actually, let's be more helpful and create them
-                // This is a bit of a hack for MVP
-            }
-            isSearching = false
+        .frame(width: 500, height: 650)
+        .task {
+            await loadContacts()
         }
     }
 
+    func toggleParticipant(_ id: UUID) {
+        if selectedParticipants.contains(id) {
+            selectedParticipants.remove(id)
+        } else {
+            selectedParticipants.insert(id)
+        }
+        updateModeWarning()
+    }
+
+    func updateModeWarning() {
+        modeWarning = nil
+
+        switch selectedMode {
+        case .direct:
+            if hasSelectedAgent {
+                modeWarning = "AI agents will be excluded in Direct mode"
+            }
+        case .anonymous:
+            if !hasSelectedHuman {
+                modeWarning = "Anonymous mode requires at least one human recipient"
+            } else if !hasSelectedAgent {
+                modeWarning = "STEF will be added automatically for mediation"
+            }
+        case .assisted:
+            break
+        }
+    }
+
+    func loadContacts() async {
+        isLoading = true
+        allContacts = await appState.loadAllUsers()
+        isLoading = false
+    }
+
     func createConversation() {
-        guard let recipient = foundUser else { return }
+        let participants = participantsForConversation
+        guard !participants.isEmpty else { return }
 
         Task {
-            // Check if conversation with this person already exists (same mode, no title)
-            if title.isEmpty {
+            // Check if conversation with same participants already exists (same mode, no title)
+            if title.isEmpty && participants.count == 1 {
+                let recipientId = participants.first!
                 if let existing = appState.conversations.first(where: { convo in
-                    convo.participants.contains(where: { $0.id == recipient.id }) &&
+                    convo.participants.count == 1 &&
+                    convo.participants.first?.id == recipientId &&
                     convo.conversation.mode == selectedMode &&
                     (convo.conversation.title == nil || convo.conversation.title?.isEmpty == true)
                 }) {
@@ -225,7 +326,7 @@ struct NewConversationView: View {
 
             // Create new conversation
             if let conversation = await appState.createConversation(
-                with: [recipient.id],
+                with: participants,
                 mode: selectedMode,
                 title: title.isEmpty ? nil : title
             ) {

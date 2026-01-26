@@ -25,6 +25,9 @@ enum AppTab: String, CaseIterable {
 
 @MainActor
 class AppState: ObservableObject {
+    // Well-known agent IDs
+    static let stefAgentId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     @Published var selectedTab: AppTab = .messages
     @Published var currentUser: User?
     @Published var conversations: [ConversationWithDetails] = []
@@ -109,7 +112,7 @@ class AppState: ObservableObject {
             if let user = existing.first {
                 self.currentUser = user
             } else {
-                // Create new user
+                // Create new human user
                 let newUser = User(
                     id: UUID(),
                     githubHandle: githubHandle,
@@ -117,6 +120,8 @@ class AppState: ObservableObject {
                     email: nil,
                     phoneNumber: nil,
                     avatarUrl: nil,
+                    userType: .human,
+                    agentMetadata: nil,
                     createdAt: Date(),
                     updatedAt: Date()
                 )
@@ -421,11 +426,61 @@ class AppState: ObservableObject {
 
     // MARK: - Contact Management
 
-    func loadAllUsers() async -> [User] {
+    /// Load all users, optionally filtering by type
+    /// - Parameter includeAgents: If false, only returns human users
+    /// - Returns: Array of users sorted by type (agents first) then name
+    func loadAllUsers(includeAgents: Bool = true) async -> [User] {
+        do {
+            var users: [User] = try await supabase
+                .from("users")
+                .select()
+                .order("display_name", ascending: true)
+                .execute()
+                .value
+
+            if !includeAgents {
+                users = users.filter { $0.isHuman }
+            }
+
+            // Sort: agents first, then by display name
+            users.sort { user1, user2 in
+                if user1.isAgent != user2.isAgent {
+                    return user1.isAgent  // Agents come first
+                }
+                return user1.displayName.localizedCaseInsensitiveCompare(user2.displayName) == .orderedAscending
+            }
+
+            return users
+        } catch {
+            errorMessage = "Failed to load contacts: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    /// Load only AI agent users
+    func loadAgents() async -> [User] {
         do {
             let users: [User] = try await supabase
                 .from("users")
                 .select()
+                .eq("user_type", value: "agent")
+                .order("display_name", ascending: true)
+                .execute()
+                .value
+            return users
+        } catch {
+            errorMessage = "Failed to load agents: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    /// Load only human users
+    func loadHumanUsers() async -> [User] {
+        do {
+            let users: [User] = try await supabase
+                .from("users")
+                .select()
+                .eq("user_type", value: "human")
                 .order("display_name", ascending: true)
                 .execute()
                 .value
@@ -436,7 +491,7 @@ class AppState: ObservableObject {
         }
     }
 
-    func createUser(displayName: String, githubHandle: String?, phoneNumber: String?, email: String?) async -> User? {
+    func createUser(displayName: String, githubHandle: String?, phoneNumber: String?, email: String?, userType: UserType = .human) async -> User? {
         do {
             let newUser = User(
                 id: UUID(),
@@ -445,6 +500,8 @@ class AppState: ObservableObject {
                 email: email,
                 phoneNumber: phoneNumber,
                 avatarUrl: nil,
+                userType: userType,
+                agentMetadata: nil,
                 createdAt: Date(),
                 updatedAt: Date()
             )
@@ -494,6 +551,18 @@ class AppState: ObservableObject {
     }
 
     func deleteUser(_ id: UUID) async {
+        // Prevent deletion of system agents
+        if id == AppState.stefAgentId {
+            errorMessage = "Cannot delete system agents"
+            return
+        }
+
+        // Check if user is a system agent before deleting
+        if let user = await loadUser(byId: id), user.isSystemAgent {
+            errorMessage = "Cannot delete system agents"
+            return
+        }
+
         do {
             try await supabase
                 .from("users")

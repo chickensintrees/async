@@ -7,6 +7,31 @@ struct ContactsView: View {
     @State private var isLoading = true
     @State private var showAddContact = false
     @State private var selectedContact: User?
+    @State private var showAgents = true
+    @State private var searchText = ""
+
+    var agentContacts: [User] {
+        contacts.filter { $0.isAgent }
+    }
+
+    var humanContacts: [User] {
+        contacts.filter { $0.isHuman }
+    }
+
+    var filteredAgents: [User] {
+        if searchText.isEmpty { return agentContacts }
+        return agentContacts.filter { matchesSearch($0) }
+    }
+
+    var filteredHumans: [User] {
+        if searchText.isEmpty { return humanContacts }
+        return humanContacts.filter { matchesSearch($0) }
+    }
+
+    private func matchesSearch(_ user: User) -> Bool {
+        user.displayName.localizedCaseInsensitiveContains(searchText) ||
+        (user.githubHandle?.localizedCaseInsensitiveContains(searchText) ?? false)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,8 +46,20 @@ struct ContactsView: View {
 
                 Spacer()
 
+                // Agent toggle
+                Toggle(isOn: $showAgents) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.purple)
+                        Text("Agents")
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
                 Text("\(contacts.count) contacts")
                     .foregroundColor(.secondary)
+                    .padding(.leading, 8)
 
                 Button(action: { showAddContact = true }) {
                     Image(systemName: "plus")
@@ -36,6 +73,13 @@ struct ContactsView: View {
             }
             .padding()
             .frame(maxWidth: .infinity)
+
+            // Search bar
+            if !contacts.isEmpty {
+                SearchBar(text: $searchText, placeholder: "Search contacts...")
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
 
             Divider()
 
@@ -58,10 +102,70 @@ struct ContactsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(contacts) { contact in
-                    ContactRow(contact: contact, onEdit: {
-                        selectedContact = contact
-                    })
+                List {
+                    // AI Agents Section
+                    if showAgents && !filteredAgents.isEmpty {
+                        Section {
+                            ForEach(filteredAgents) { contact in
+                                ContactRowView(contact: contact, onEdit: {
+                                    if !contact.isSystemAgent {
+                                        selectedContact = contact
+                                    }
+                                })
+                            }
+                        } header: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.purple)
+                                Text("AI Agents")
+                                    .foregroundColor(.purple)
+                                Text("(\(filteredAgents.count))")
+                                    .foregroundColor(.secondary)
+                            }
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        }
+                    }
+
+                    // People Section
+                    if !filteredHumans.isEmpty {
+                        Section {
+                            ForEach(filteredHumans) { contact in
+                                ContactRowView(contact: contact, onEdit: {
+                                    selectedContact = contact
+                                })
+                            }
+                        } header: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.2.fill")
+                                    .foregroundColor(.blue)
+                                Text("People")
+                                    .foregroundColor(.blue)
+                                Text("(\(filteredHumans.count))")
+                                    .foregroundColor(.secondary)
+                            }
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        }
+                    }
+
+                    // No results
+                    if !searchText.isEmpty && filteredAgents.isEmpty && filteredHumans.isEmpty {
+                        Section {
+                            HStack {
+                                Spacer()
+                                VStack(spacing: 8) {
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.title2)
+                                        .foregroundColor(.secondary)
+                                    Text("No contacts match \"\(searchText)\"")
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 20)
+                        }
+                    }
                 }
                 .listStyle(.inset)
             }
@@ -73,6 +177,13 @@ struct ContactsView: View {
         .sheet(isPresented: $showAddContact) {
             AddContactView(onSave: { newContact in
                 contacts.append(newContact)
+                // Re-sort after adding
+                contacts.sort { user1, user2 in
+                    if user1.isAgent != user2.isAgent {
+                        return user1.isAgent
+                    }
+                    return user1.displayName.localizedCaseInsensitiveCompare(user2.displayName) == .orderedAscending
+                }
                 showAddContact = false
             })
         }
@@ -95,62 +206,6 @@ struct ContactsView: View {
             contacts = await appState.loadAllUsers()
             isLoading = false
         }
-    }
-}
-
-struct ContactRow: View {
-    let contact: User
-    let onEdit: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Avatar
-            Circle()
-                .fill(Color.blue.opacity(0.2))
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Text(String(contact.displayName.prefix(1)).uppercased())
-                        .font(.headline)
-                        .foregroundColor(.blue)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(contact.displayName)
-                    .font(.headline)
-
-                if let github = contact.githubHandle {
-                    Text("@\(github)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-
-            if let phone = contact.formattedPhone {
-                HStack(spacing: 4) {
-                    Image(systemName: "phone.fill")
-                        .font(.caption)
-                    Text(phone)
-                        .font(.caption)
-                }
-                .foregroundColor(.green)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(6)
-            } else {
-                Text("No phone")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Button(action: onEdit) {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(.vertical, 4)
     }
 }
 
@@ -295,9 +350,12 @@ struct EditContactView: View {
                     }
                 }
 
-                Section {
-                    Button("Delete Contact", role: .destructive) {
-                        showDeleteConfirm = true
+                // Only show delete for non-system agents
+                if !contact.isSystemAgent {
+                    Section {
+                        Button("Delete Contact", role: .destructive) {
+                            showDeleteConfirm = true
+                        }
                     }
                 }
             }

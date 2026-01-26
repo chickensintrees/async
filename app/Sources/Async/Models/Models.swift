@@ -1,4 +1,47 @@
 import Foundation
+import SwiftUI
+
+// MARK: - User Type
+
+enum UserType: String, Codable, CaseIterable {
+    case human = "human"
+    case agent = "agent"
+
+    var icon: String {
+        switch self {
+        case .human: return "person.fill"
+        case .agent: return "sparkles"
+        }
+    }
+
+    var badgeColor: Color {
+        switch self {
+        case .human: return .clear
+        case .agent: return .purple
+        }
+    }
+}
+
+// MARK: - Agent Metadata
+
+struct AgentMetadata: Codable, Equatable, Hashable {
+    let provider: String?
+    let model: String?
+    let capabilities: [String]?
+    let isSystem: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case provider, model, capabilities
+        case isSystem = "is_system"
+    }
+
+    init(provider: String? = nil, model: String? = nil, capabilities: [String]? = nil, isSystem: Bool? = nil) {
+        self.provider = provider
+        self.model = model
+        self.capabilities = capabilities
+        self.isSystem = isSystem
+    }
+}
 
 // MARK: - Conversation Mode
 
@@ -33,6 +76,8 @@ struct User: Codable, Identifiable, Equatable, Hashable {
     var email: String?
     var phoneNumber: String?
     var avatarUrl: String?
+    var userType: UserType
+    var agentMetadata: AgentMetadata?
     let createdAt: Date
     var updatedAt: Date
 
@@ -43,9 +88,17 @@ struct User: Codable, Identifiable, Equatable, Hashable {
         case email
         case phoneNumber = "phone_number"
         case avatarUrl = "avatar_url"
+        case userType = "user_type"
+        case agentMetadata = "agent_metadata"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+
+    // MARK: - Computed Properties
+
+    var isAgent: Bool { userType == .agent }
+    var isHuman: Bool { userType == .human }
+    var isSystemAgent: Bool { agentMetadata?.isSystem == true }
 
     var formattedPhone: String? {
         guard let phone = phoneNumber else { return nil }
@@ -57,6 +110,43 @@ struct User: Codable, Identifiable, Equatable, Hashable {
             return "+1 (\(area)) \(first)-\(last)"
         }
         return phone
+    }
+
+    var capabilitiesDescription: String? {
+        guard let caps = agentMetadata?.capabilities, !caps.isEmpty else { return nil }
+        return caps.joined(separator: " \u{2022} ")
+    }
+
+    // MARK: - Initializers
+
+    init(id: UUID, githubHandle: String? = nil, displayName: String, email: String? = nil,
+         phoneNumber: String? = nil, avatarUrl: String? = nil, userType: UserType = .human,
+         agentMetadata: AgentMetadata? = nil, createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.id = id
+        self.githubHandle = githubHandle
+        self.displayName = displayName
+        self.email = email
+        self.phoneNumber = phoneNumber
+        self.avatarUrl = avatarUrl
+        self.userType = userType
+        self.agentMetadata = agentMetadata
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        githubHandle = try container.decodeIfPresent(String.self, forKey: .githubHandle)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        email = try container.decodeIfPresent(String.self, forKey: .email)
+        phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber)
+        avatarUrl = try container.decodeIfPresent(String.self, forKey: .avatarUrl)
+        // Default to human if not present (backward compatibility)
+        userType = try container.decodeIfPresent(UserType.self, forKey: .userType) ?? .human
+        agentMetadata = try container.decodeIfPresent(AgentMetadata.self, forKey: .agentMetadata)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
