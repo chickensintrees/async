@@ -2,20 +2,29 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var authService: AuthService
     @EnvironmentObject var dashboardVM: DashboardViewModel
 
     var body: some View {
         NavigationSplitView {
             // Main navigation sidebar
-            List(selection: $appState.selectedTab) {
-                Section("App") {
-                    ForEach(AppTab.allCases, id: \.self) { tab in
-                        Label(tab.rawValue, systemImage: tab.icon)
-                            .tag(tab)
+            VStack(spacing: 0) {
+                List(selection: $appState.selectedTab) {
+                    Section("App") {
+                        ForEach(AppTab.allCases, id: \.self) { tab in
+                            Label(tab.rawValue, systemImage: tab.icon)
+                                .tag(tab)
+                        }
                     }
                 }
+                .listStyle(.sidebar)
+
+                Divider()
+
+                // User profile section at bottom of sidebar
+                UserProfileButton()
+                    .padding(12)
             }
-            .listStyle(.sidebar)
             .frame(minWidth: 150)
         } detail: {
             switch appState.selectedTab {
@@ -30,10 +39,8 @@ struct MainView: View {
             }
         }
         .task {
-            await appState.loadOrCreateUser(
-                githubHandle: Config.currentUserGithubHandle,
-                displayName: Config.currentUserDisplayName
-            )
+            // User is loaded by RootView from AuthService
+            // Just load conversations here
             await appState.loadConversations()
         }
         .sheet(isPresented: $appState.showNewConversation) {
@@ -755,5 +762,71 @@ struct AboutTab: View {
             Link("GitHub Repository", destination: URL(string: "https://github.com/chickensintrees/async")!)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - User Profile Button
+
+struct UserProfileButton: View {
+    @EnvironmentObject var authService: AuthService
+
+    var body: some View {
+        Menu {
+            if let handle = authService.githubHandle {
+                Text("Signed in as @\(handle)")
+                    .font(.caption)
+            }
+
+            Divider()
+
+            Button(action: {
+                Task {
+                    await authService.signOut()
+                }
+            }) {
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        } label: {
+            HStack(spacing: 8) {
+                // Avatar
+                AsyncImage(url: URL(string: authService.avatarUrl ?? "")) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Image(systemName: "person.circle.fill")
+                        .resizable()
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 32, height: 32)
+                .clipShape(Circle())
+
+                // Name
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(authService.displayName ?? "User")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    if let handle = authService.githubHandle {
+                        Text("@\(handle)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
     }
 }

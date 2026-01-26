@@ -53,6 +53,56 @@ class AppState: ObservableObject {
 
     // MARK: - User Management
 
+    /// Load current user from auth session
+    func loadCurrentUser(from authService: AuthService) async {
+        guard let userId = authService.currentUserId else {
+            currentUser = nil
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            // Fetch user from our users table (AuthService already synced it)
+            let users: [User] = try await supabase
+                .from("users")
+                .select()
+                .eq("id", value: userId.uuidString)
+                .execute()
+                .value
+
+            if let user = users.first {
+                self.currentUser = user
+                print("✓ Loaded user: \(user.displayName)")
+            } else {
+                // User not in table yet - create from auth info
+                let newUser = User(
+                    id: userId,
+                    githubHandle: authService.githubHandle,
+                    displayName: authService.displayName ?? authService.githubHandle ?? "User",
+                    email: authService.email,
+                    phoneNumber: nil,
+                    avatarUrl: authService.avatarUrl,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+
+                try await supabase
+                    .from("users")
+                    .insert(newUser)
+                    .execute()
+
+                self.currentUser = newUser
+                print("✓ Created user: \(newUser.displayName)")
+            }
+        } catch {
+            errorMessage = "Failed to load user: \(error.localizedDescription)"
+            print("✘ Failed to load user: \(error)")
+        }
+    }
+
+    /// Legacy method - kept for compatibility
     func loadOrCreateUser(githubHandle: String, displayName: String) async {
         isLoading = true
         defer { isLoading = false }

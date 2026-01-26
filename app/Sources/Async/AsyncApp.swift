@@ -2,13 +2,15 @@ import SwiftUI
 
 @main
 struct AsyncApp: App {
+    @StateObject private var authService = AuthService.shared
     @StateObject private var appState = AppState()
     @StateObject private var dashboardVM = DashboardViewModel()
     @StateObject private var gameVM = GamificationViewModel()
 
     var body: some Scene {
         WindowGroup {
-            MainView()
+            RootView()
+                .environmentObject(authService)
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
                 .environmentObject(gameVM)
@@ -22,6 +24,7 @@ struct AsyncApp: App {
                     appState.showNewConversation = true
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                .disabled(!authService.isAuthenticated)
             }
 
             // View Menu
@@ -59,6 +62,27 @@ struct AsyncApp: App {
                 .keyboardShortcut("a", modifiers: [.command, .shift])
             }
 
+            // Account Menu
+            CommandMenu("Account") {
+                if authService.isAuthenticated {
+                    Text("Signed in as \(authService.githubHandle ?? "unknown")")
+
+                    Divider()
+
+                    Button("Sign Out") {
+                        Task {
+                            await authService.signOut()
+                        }
+                    }
+                } else {
+                    Button("Sign In with GitHub") {
+                        Task {
+                            await authService.signInWithGitHub()
+                        }
+                    }
+                }
+            }
+
             // Help menu
             CommandGroup(replacing: .help) {
                 Button("Async Help") {
@@ -69,9 +93,32 @@ struct AsyncApp: App {
 
         Settings {
             UnifiedSettingsView()
+                .environmentObject(authService)
                 .environmentObject(appState)
                 .environmentObject(dashboardVM)
                 .environmentObject(gameVM)
         }
+    }
+}
+
+// MARK: - Root View (handles auth state)
+
+struct RootView: View {
+    @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Group {
+            if authService.isAuthenticated {
+                MainView()
+                    .task {
+                        // Load user data when authenticated
+                        await appState.loadCurrentUser(from: authService)
+                    }
+            } else {
+                LoginView()
+            }
+        }
+        .animation(.easeInOut, value: authService.isAuthenticated)
     }
 }

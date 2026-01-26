@@ -100,14 +100,14 @@ struct ConversationParticipant: Codable {
 
 // MARK: - Message
 
-struct Message: Codable, Identifiable, Equatable {
+struct Message: Identifiable, Equatable {
     let id: UUID
     let conversationId: UUID
     let senderId: UUID?
     let contentRaw: String
     let contentProcessed: String?
     let isFromAgent: Bool
-    let agentContext: String?  // JSON string
+    let agentContext: String?  // Only used for encoding when sending
     let createdAt: Date
     let processedAt: Date?
     let rawVisibleTo: [UUID]?
@@ -123,6 +123,59 @@ struct Message: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case processedAt = "processed_at"
         case rawVisibleTo = "raw_visible_to"
+    }
+
+    // Memberwise init for creating new messages
+    init(id: UUID, conversationId: UUID, senderId: UUID?, contentRaw: String,
+         contentProcessed: String?, isFromAgent: Bool, agentContext: String?,
+         createdAt: Date, processedAt: Date?, rawVisibleTo: [UUID]?) {
+        self.id = id
+        self.conversationId = conversationId
+        self.senderId = senderId
+        self.contentRaw = contentRaw
+        self.contentProcessed = contentProcessed
+        self.isFromAgent = isFromAgent
+        self.agentContext = agentContext
+        self.createdAt = createdAt
+        self.processedAt = processedAt
+        self.rawVisibleTo = rawVisibleTo
+    }
+}
+
+extension Message: Decodable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        conversationId = try container.decode(UUID.self, forKey: .conversationId)
+        senderId = try container.decodeIfPresent(UUID.self, forKey: .senderId)
+        contentRaw = try container.decode(String.self, forKey: .contentRaw)
+        contentProcessed = try container.decodeIfPresent(String.self, forKey: .contentProcessed)
+        isFromAgent = try container.decodeIfPresent(Bool.self, forKey: .isFromAgent) ?? false
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        processedAt = try container.decodeIfPresent(Date.self, forKey: .processedAt)
+
+        // agentContext comes as JSONB - try string first, skip if it's an object
+        agentContext = try? container.decodeIfPresent(String.self, forKey: .agentContext)
+
+        // rawVisibleTo is UUID[] - skip for now
+        rawVisibleTo = nil
+    }
+}
+
+extension Message: Encodable {
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(id, forKey: .id)
+        try container.encode(conversationId, forKey: .conversationId)
+        try container.encodeIfPresent(senderId, forKey: .senderId)
+        try container.encode(contentRaw, forKey: .contentRaw)
+        try container.encodeIfPresent(contentProcessed, forKey: .contentProcessed)
+        try container.encode(isFromAgent, forKey: .isFromAgent)
+        try container.encodeIfPresent(agentContext, forKey: .agentContext)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(processedAt, forKey: .processedAt)
     }
 
     /// Returns the content to display based on conversation mode and viewer
