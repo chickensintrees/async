@@ -289,6 +289,93 @@ gh api repos/chickensintrees/async/issues --jq '.[:3] | .[] | select(.pull_reque
 done
 
 # ─────────────────────────────────────────────────────────────────────────────
+section "ISSUE CLASSIFICATION"
+
+# Classification logic:
+# - Referenced in recent commit (last 7 days) → in-progress
+# - Referenced in open PR → in-progress
+# - Has assignee → in-progress
+# - Has "in-progress" or "done" label already → respect it (manual override)
+# - Otherwise → backlog (remove in-progress/done labels if present)
+
+CLASSIFY_CHANGES=0
+
+# Get recent commits (last 7 days) and extract issue references
+RECENT_COMMITS=$(gh api "repos/chickensintrees/async/commits?per_page=50" --jq '.[].commit.message' 2>/dev/null)
+COMMIT_REFS=$(echo "$RECENT_COMMITS" | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+
+# Get open PRs and extract issue references from title/body
+OPEN_PR_REFS=$(gh api repos/chickensintrees/async/pulls --jq '.[].title + " " + (.body // "")' 2>/dev/null | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+
+# Combine all "in progress" signals
+IN_PROGRESS_REFS=$(echo -e "$COMMIT_REFS\n$OPEN_PR_REFS" | sort -u | grep -v '^$')
+
+# Get all open issues
+OPEN_ISSUES=$(gh api "repos/chickensintrees/async/issues?state=open&per_page=100" --jq '.[] | select(.pull_request == null) | "\(.number)|\(.title)|\([.labels[].name] | join(","))|\(.assignee.login // "")"' 2>/dev/null)
+
+classify_issue() {
+    local issue_num="$1"
+    local title="$2"
+    local current_labels="$3"
+    local assignee="$4"
+    local target_column=""
+    local reason=""
+
+    # Check if manually labeled (respect user overrides)
+    if [[ "$current_labels" == *"done"* ]]; then
+        # Already marked done, leave it alone
+        return
+    fi
+
+    # Check signals for in-progress
+    if echo "$IN_PROGRESS_REFS" | grep -q "^${issue_num}$"; then
+        target_column="in-progress"
+        reason="referenced in commits/PRs"
+    elif [ -n "$assignee" ]; then
+        target_column="in-progress"
+        reason="assigned to $assignee"
+    else
+        target_column="backlog"
+        reason="no activity signals"
+    fi
+
+    # Determine if we need to make changes
+    local has_in_progress=$([[ "$current_labels" == *"in-progress"* ]] && echo "yes" || echo "no")
+
+    if [ "$target_column" = "in-progress" ] && [ "$has_in_progress" = "no" ]; then
+        # Add in-progress label
+        printf "  ${CYAN}→${RESET} #$issue_num: ${WHITE}→ in-progress${RESET} ${GRAY}($reason)${RESET}\n"
+        gh api "repos/chickensintrees/async/issues/$issue_num/labels" -X POST -f "labels[]=in-progress" >/dev/null 2>&1
+        CLASSIFY_CHANGES=$((CLASSIFY_CHANGES + 1))
+    elif [ "$target_column" = "backlog" ] && [ "$has_in_progress" = "yes" ]; then
+        # Remove in-progress label (no longer active)
+        printf "  ${CYAN}→${RESET} #$issue_num: ${WHITE}→ backlog${RESET} ${GRAY}(no recent activity)${RESET}\n"
+        gh api "repos/chickensintrees/async/issues/$issue_num/labels/in-progress" -X DELETE >/dev/null 2>&1
+        CLASSIFY_CHANGES=$((CLASSIFY_CHANGES + 1))
+    fi
+}
+
+# Process each issue
+while IFS='|' read -r num title labels assignee; do
+    [ -z "$num" ] && continue
+    classify_issue "$num" "$title" "$labels" "$assignee"
+done <<< "$OPEN_ISSUES"
+
+if [ $CLASSIFY_CHANGES -gt 0 ]; then
+    status_ok "Updated $CLASSIFY_CHANGES issue classifications"
+else
+    status_ok "All issues correctly classified"
+fi
+
+# Re-fetch to show accurate distribution after classification
+UPDATED_ISSUES=$(gh api "repos/chickensintrees/async/issues?state=open&per_page=100" --jq '.[] | select(.pull_request == null) | [.labels[].name] | join(",")' 2>/dev/null)
+BACKLOG_COUNT=$(echo "$UPDATED_ISSUES" | grep -v "in-progress" | grep -v "done" | grep -v '^$' | wc -l | tr -d ' ')
+IN_PROGRESS_COUNT=$(echo "$UPDATED_ISSUES" | grep "in-progress" | wc -l | tr -d ' ')
+DONE_COUNT=$(echo "$UPDATED_ISSUES" | grep "done" | wc -l | tr -d ' ')
+
+printf "  ${GRAY}Distribution: ${WHITE}$BACKLOG_COUNT${GRAY} backlog / ${BLUE}$IN_PROGRESS_COUNT${GRAY} in-progress / ${GREEN}$DONE_COUNT${GRAY} done${RESET}\n"
+
+# ─────────────────────────────────────────────────────────────────────────────
 section "REMOTE OUTPOSTS"
 
 gh api repos/chickensintrees/async/branches --jq '.[].name' 2>/dev/null | while read branch; do
