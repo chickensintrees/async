@@ -18,81 +18,162 @@ This is a collaborative project. Before building features:
 3. Reach consensus, then build
 
 ### Multi-Agent Coordination
-**CRITICAL**: Multiple Claude Code agents may be working on this codebase simultaneously. Follow these rules:
+**CRITICAL**: Multiple Claude Code agents may be working on this codebase simultaneously. This section defines how agents coordinate to prevent conflicts and maintain code quality.
 
 #### Agent Identity
-Each Claude Code session should set a unique agent ID at startup:
+Each Claude Code session has a unique agent ID:
 ```bash
 export CLAUDE_AGENT_ID="bill-main"      # or "bill-secondary", "noah-main", etc.
 ```
+Or auto-generated and persisted to `~/.claude/agent-id`.
 
-Or the system will auto-generate one and persist it to `~/.claude/agent-id`.
+#### Intent Broadcasting (Before Starting Work)
+**ALWAYS declare your intent before making changes:**
+1. Run `./scripts/agent-lock.sh status` to see active work
+2. Run `git fetch && git status` to check for uncommitted/unpushed work
+3. Acquire locks on files you plan to edit
+4. If another agent is active, **coordinate via SMS or wait**
 
 #### Agent Lock System
-Use `scripts/agent-lock.sh` to coordinate file access:
-
 ```bash
-# Check if a file is available
-./scripts/agent-lock.sh check app/Sources/Async/Views/MainView.swift
-
-# Acquire lock before editing (10-minute TTL)
-./scripts/agent-lock.sh acquire app/Sources/Async/Views/MainView.swift "refactoring navigation"
-
-# Release when done
-./scripts/agent-lock.sh release app/Sources/Async/Views/MainView.swift
-
-# See all active locks
-./scripts/agent-lock.sh status
-
-# Clean up stale locks (>10 min old)
-./scripts/agent-lock.sh cleanup
+./scripts/agent-lock.sh check <file>     # Check if available
+./scripts/agent-lock.sh acquire <file> "description"  # Lock (10-min TTL)
+./scripts/agent-lock.sh release <file>   # Release when done
+./scripts/agent-lock.sh status           # View all locks
+./scripts/agent-lock.sh cleanup          # Remove stale locks (>10 min)
 ```
 
-#### Before Making Changes
-1. **Check locks first**: `./scripts/agent-lock.sh status`
-2. **Check git status**: If uncommitted changes exist, another agent may be mid-edit
-3. **Acquire lock**: Before editing any file, acquire its lock
-4. **Pull before push**: Always `git pull --rebase` before pushing
-
-#### Mandatory Lock Protocol
-**YOU MUST** acquire a lock before editing these critical files:
-- `CLAUDE.md` - Project instructions
+**Mandatory locks required for:**
+- `CLAUDE.md`, `openspec/AGENTS.md` - Coordination rules
 - `app/Sources/Async/Models/*.swift` - Shared data models
 - `app/Sources/Async/Services/*.swift` - Core services
 - `.claude/settings.json` - Project config
 
-For Views, lock the specific view you're editing.
+#### Merge Strategy
+**Use rebase for local work, merge commits for collaboration:**
 
-#### If Lock is Held
-1. Check `./scripts/agent-lock.sh status` to see who holds it
-2. If lock is STALE (>10 min), you may override: `./scripts/agent-lock.sh cleanup`
-3. If lock is ACTIVE, **ask the user** which agent should proceed
-4. Never force-edit a locked file
+| Scenario | Strategy | Command |
+|----------|----------|---------|
+| Pulling latest main | Rebase | `git pull --rebase origin main` |
+| Feature branch → main | Squash merge | `gh pr merge --squash` |
+| Hotfix to main | Direct commit | `git commit && git push` |
+| Conflict with other agent | Merge commit | `git merge` (preserves both histories) |
 
-#### Git Conflict Protocol
-1. **Before committing**: `git pull --rebase origin main`
-2. **If conflicts occur**: STOP, notify user, don't force resolve
-3. **After resolving**: Release your locks, let other agent continue
+**Golden rule:** Never force push to main. Never rewrite shared history.
+
+#### Conflict Resolution Protocol
+When git conflicts occur:
+
+**Step 1: STOP and Assess**
+```bash
+git status                    # See conflicted files
+git diff --name-only --diff-filter=U  # List conflicts
+```
+
+**Step 2: Determine Ownership**
+- Check lock status: `./scripts/agent-lock.sh status`
+- Check commit authorship: `git log --oneline -5`
+- If unclear, **ask user** which version to keep
+
+**Step 3: Resolve by Category**
+
+| File Type | Resolution Strategy |
+|-----------|---------------------|
+| Code (logic changes) | Keep newer logic, merge both if complementary |
+| Config files | Merge manually, keep all valid entries |
+| Documentation | Keep more complete version, merge additions |
+| Generated files | Regenerate from source |
+
+**Step 4: Complete Resolution**
+```bash
+# After manually editing conflicts:
+git add <resolved-files>
+git commit -m "Merge: resolve conflict in <file> (kept <reason>)"
+./scripts/agent-lock.sh release <file>
+```
+
+**Step 5: Notify Other Agent**
+If the other agent's changes were significant, notify via SMS or leave a comment.
+
+#### Session Handoff Protocol
+When one agent needs to hand off work to another:
+
+**Outgoing Agent:**
+1. Commit all work with clear message: `"WIP: <description> [handoff to <agent>]"`
+2. Push to origin
+3. Release all locks: `./scripts/agent-lock.sh release <file>`
+4. Document state in session log or GitHub issue
+
+**Incoming Agent:**
+1. Pull latest: `git pull --rebase origin main`
+2. Check locks: `./scripts/agent-lock.sh status`
+3. Read recent commits: `git log --oneline -10`
+4. Acquire locks for files you'll continue working on
+
+#### Priority System (Who Wins Conflicts)
+When two agents want the same file simultaneously:
+
+1. **First lock wins** - Agent with active lock has priority
+2. **Critical path wins** - Bug fixes > features > refactoring
+3. **User decides** - If unclear, ask the human
+4. **Time-box waiting** - Don't wait more than 10 minutes; escalate to user
+
+#### Rollback Procedure
+If an agent commits broken code:
+
+**Quick Revert (< 1 commit):**
+```bash
+git revert HEAD --no-edit
+git push origin main
+```
+
+**Multiple Commits:**
+```bash
+git log --oneline -10          # Find last good commit
+git revert <bad-commit>..<HEAD> --no-edit
+git push origin main
+```
+
+**Nuclear Option (with user permission only):**
+```bash
+git reset --hard <good-commit>
+git push --force origin main   # DANGEROUS - requires explicit user approval
+```
 
 #### Safe Parallel Work Zones
-These can usually be edited simultaneously without locks:
-- Different Views (one agent on MainView, another on DashboardView)
+These can be edited simultaneously WITHOUT locks:
+- Different Views (MainView vs DashboardView)
 - Backend (`backend/`) vs App (`app/`)
-- Tests vs Implementation
-- Documentation (separate files) vs Code
+- Tests vs Implementation (different files)
+- Separate documentation files
+
+#### Communication Between Agents
+Agents can share context via:
+```bash
+./scripts/sms-context.sh       # Query shared SMS conversation (Supabase)
+```
+
+For urgent coordination, use SMS with @stef to notify both Bill and Noah's Claude instances.
 
 #### Quick Reference
 ```bash
-# Start of work session
+# Start of session
+git fetch && git status
 ./scripts/agent-lock.sh status
 ./scripts/agent-lock.sh acquire <file> "description"
 
-# End of work session
-./scripts/agent-lock.sh release <file>
+# During work
+git pull --rebase origin main  # Before pushing
 git add -A && git commit -m "..." && git push
 
-# Before any edit
-./scripts/agent-lock.sh check <file>
+# End of session
+./scripts/agent-lock.sh release <file>
+git push origin main
+
+# Conflict resolution
+git status                     # See conflicts
+# ... manually resolve ...
+git add <file> && git commit -m "Merge: resolve <file>"
 ```
 
 ## Project Overview
