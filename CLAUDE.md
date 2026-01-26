@@ -567,7 +567,22 @@ If any doc is outdated, update it before ending the session.
 
 When user says **"debrief"**, **"end session"**, or **"save and quit"**:
 
-### 1. Run Tests (MANDATORY)
+### Quick Debrief (Automated Script)
+```bash
+./scripts/debrief.sh
+```
+
+This script checks for:
+1. **Uncommitted changes** - Files that haven't been committed
+2. **Stashed work** - `git stash list` for forgotten WIP
+3. **Unpushed commits** - Local commits not pushed to origin
+4. **Test status** - Runs full test suite
+
+**Only exit when the script shows "ALL CLEAR".**
+
+### Manual Debrief Steps (if script unavailable)
+
+#### 1. Run Tests (MANDATORY)
 ```bash
 xcodebuild test -scheme Async -destination 'platform=macOS' 2>&1 | tail -20
 ```
@@ -575,7 +590,13 @@ xcodebuild test -scheme Async -destination 'platform=macOS' 2>&1 | tail -20
 - If any test fails, **fix it first** - do not commit with failing tests
 - Only exception: explicitly acknowledged pre-existing issues (document in session log)
 
-### 2. Commit All Changes
+#### 2. Check for Lost Work
+```bash
+git stash list  # Any forgotten stashes?
+git status      # Any uncommitted changes?
+```
+
+#### 3. Commit All Changes
 ```bash
 git status
 git add -A
