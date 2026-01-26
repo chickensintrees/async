@@ -102,6 +102,12 @@ CREATE POLICY "Owner manages connections"
     TO authenticated
     USING (owner_id = auth.uid());
 
+-- Connections: deletable by subscriber (cancel pending request)
+CREATE POLICY "Cancel own subscription request"
+    ON connections FOR DELETE
+    TO authenticated
+    USING (subscriber_id = auth.uid() AND status = 'pending');
+
 -- Tags: viewable/manageable only by owner
 CREATE POLICY "View own tags"
     ON tags FOR SELECT
