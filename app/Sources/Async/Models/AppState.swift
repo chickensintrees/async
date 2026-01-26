@@ -5,8 +5,25 @@ enum FilterMode {
     case all, unread
 }
 
+enum AppTab: String, CaseIterable {
+    case messages = "Messages"
+    case contacts = "Contacts"
+    case dashboard = "Dashboard"
+    case backlog = "Backlog"
+
+    var icon: String {
+        switch self {
+        case .messages: return "message.fill"
+        case .contacts: return "person.2.fill"
+        case .dashboard: return "chart.bar.fill"
+        case .backlog: return "list.bullet.rectangle"
+        }
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
+    @Published var selectedTab: AppTab = .messages
     @Published var currentUser: User?
     @Published var conversations: [Conversation] = []
     @Published var selectedConversation: Conversation?
@@ -51,6 +68,7 @@ class AppState: ObservableObject {
                     githubHandle: githubHandle,
                     displayName: displayName,
                     email: nil,
+                    phoneNumber: nil,
                     avatarUrl: nil,
                     createdAt: Date(),
                     updatedAt: Date()
@@ -217,5 +235,108 @@ class AppState: ObservableObject {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - Contact Management
+
+    func loadAllUsers() async -> [User] {
+        do {
+            let users: [User] = try await supabase
+                .from("users")
+                .select()
+                .order("display_name", ascending: true)
+                .execute()
+                .value
+            return users
+        } catch {
+            errorMessage = "Failed to load contacts: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    func createUser(displayName: String, githubHandle: String?, phoneNumber: String?, email: String?) async -> User? {
+        do {
+            let newUser = User(
+                id: UUID(),
+                githubHandle: githubHandle,
+                displayName: displayName,
+                email: email,
+                phoneNumber: phoneNumber,
+                avatarUrl: nil,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+
+            try await supabase
+                .from("users")
+                .insert(newUser)
+                .execute()
+
+            return newUser
+        } catch {
+            errorMessage = "Failed to create contact: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func updateUser(id: UUID, displayName: String, githubHandle: String?, phoneNumber: String?, email: String?) async -> User? {
+        do {
+            let updates = UserUpdate(
+                displayName: displayName,
+                githubHandle: githubHandle,
+                phoneNumber: phoneNumber,
+                email: email,
+                updatedAt: Date()
+            )
+
+            try await supabase
+                .from("users")
+                .update(updates)
+                .eq("id", value: id.uuidString)
+                .execute()
+
+            // Fetch updated user
+            let users: [User] = try await supabase
+                .from("users")
+                .select()
+                .eq("id", value: id.uuidString)
+                .execute()
+                .value
+
+            return users.first
+        } catch {
+            errorMessage = "Failed to update contact: \(error.localizedDescription)"
+            print("Update error: \(error)")
+            return nil
+        }
+    }
+
+    func deleteUser(_ id: UUID) async {
+        do {
+            try await supabase
+                .from("users")
+                .delete()
+                .eq("id", value: id.uuidString)
+                .execute()
+        } catch {
+            errorMessage = "Failed to delete contact: \(error.localizedDescription)"
+        }
+    }
+}
+
+// Helper struct for user updates
+struct UserUpdate: Encodable {
+    let displayName: String
+    let githubHandle: String?
+    let phoneNumber: String?
+    let email: String?
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+        case githubHandle = "github_handle"
+        case phoneNumber = "phone_number"
+        case email
+        case updatedAt = "updated_at"
     }
 }
