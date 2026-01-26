@@ -331,6 +331,45 @@ check_doc_staleness "README.md" "README"
 check_doc_staleness "CLAUDE.md" "CLAUDE.md"
 check_doc_staleness "openspec/project.md" "openspec/project"
 
+# ─────────────────────────────────────────────────────────────────────────────
+section "DATABASE HEALTH"
+
+# Supabase credentials (read from backend/.env.local)
+if [ -f "backend/.env.local" ]; then
+    SUPABASE_URL=$(grep "^SUPABASE_URL=" backend/.env.local | cut -d'=' -f2)
+    SUPABASE_KEY=$(grep "^SUPABASE_ANON_KEY=" backend/.env.local | cut -d'=' -f2)
+
+    if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
+        # Count conversations
+        CONV_COUNT=$(curl -s "${SUPABASE_URL}/rest/v1/conversations?select=id" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" 2>/dev/null | jq 'length' 2>/dev/null || echo "?")
+
+        # Count messages
+        MSG_COUNT=$(curl -s "${SUPABASE_URL}/rest/v1/messages?select=id" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" 2>/dev/null | jq 'length' 2>/dev/null || echo "?")
+
+        # Count users
+        USER_COUNT=$(curl -s "${SUPABASE_URL}/rest/v1/users?select=id" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" 2>/dev/null | jq 'length' 2>/dev/null || echo "?")
+
+        status_ok "Conversations: $CONV_COUNT"
+        status_ok "Messages: $MSG_COUNT"
+        status_ok "Users: $USER_COUNT"
+
+        # Warn if too many conversations (possible duplicates)
+        if [ "$CONV_COUNT" != "?" ] && [ "$CONV_COUNT" -gt 5 ]; then
+            WARNINGS+=("$CONV_COUNT conversations - check for duplicates")
+        fi
+    else
+        status_warn "Supabase credentials not found in .env.local"
+    fi
+else
+    status_warn "backend/.env.local not found"
+fi
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FINAL REPORT
 # ══════════════════════════════════════════════════════════════════════════════

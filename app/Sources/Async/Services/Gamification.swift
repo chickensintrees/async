@@ -261,9 +261,23 @@ class ScoreCalculator {
         "/tests/", "/test/", "/spec/", "Tests/", "Test/", "Spec/"
     ]
 
+    // Files that don't require tests (UI, config, docs)
+    private let noTestRequiredPatterns = [
+        "/Views/", "View.swift", ".storyboard", ".xib", ".xcassets",
+        "README", "CLAUDE.md", ".md", "Package.swift", ".gitignore",
+        "Info.plist", ".entitlements", "scripts/"
+    ]
+
     private let lazyMessages = ["wip", "fix", "update", "changes", "stuff", "asdf", "test", "temp", "tmp"]
 
-    func processCommit(_ commit: Commit, diff: CommitDiff) -> ScoreEvent {
+    func processCommit(_ commit: Commit, diff: CommitDiff) -> ScoreEvent? {
+        let msg = commit.commit.message
+
+        // Skip merge commits entirely - they're not real work
+        if msg.hasPrefix("Merge branch") || msg.hasPrefix("Merge pull request") {
+            return nil
+        }
+
         var points = 0
         var eventType: ScoreEvent.ScoreEventType = .commit
         var description = "Commit \(commit.shortSha)"
@@ -272,12 +286,21 @@ class ScoreCalculator {
             testPatterns.contains { file.filename.contains($0) }
         }
 
+        // Check if commit is UI/config only (doesn't need tests)
+        let isUIOnly = diff.files.allSatisfy { file in
+            noTestRequiredPatterns.contains { file.filename.contains($0) }
+        }
+
         let linesChanged = diff.files.reduce(0) { $0 + $1.additions + $1.deletions }
 
         if hasTests {
             points = 50
             eventType = .commitWithTests
             description = "Tested commit \(commit.shortSha) (+50)"
+        } else if isUIOnly {
+            // UI/config commits get small bonus, no penalty
+            points = linesChanged < 50 ? 10 : 15
+            description = "UI/config commit \(commit.shortSha) (+\(points))"
         } else if linesChanged < 50 {
             points = 10
             description = "Small commit \(commit.shortSha) (+10)"
@@ -292,8 +315,8 @@ class ScoreCalculator {
             description = "Commit \(commit.shortSha) (+5)"
         }
 
-        let msg = commit.commit.message.lowercased().trimmingCharacters(in: .whitespaces)
-        if lazyMessages.contains(msg) || commit.commit.message.count < 10 {
+        let msgLower = msg.lowercased().trimmingCharacters(in: .whitespaces)
+        if lazyMessages.contains(msgLower) || msg.count < 10 {
             points -= 15
             description += " [lazy message -15]"
         }
@@ -357,13 +380,19 @@ class GamificationViewModel: ObservableObject {
 
     func processNewCommits(_ commits: [Commit], using github: GitHubService) async {
         let lastProcessed = gameState.lastProcessedCommit
+        let processedShas = Set(gameState.events.compactMap { $0.relatedUrl?.components(separatedBy: "/").last })
 
         for commit in commits {
             if let last = lastProcessed, commit.sha == last { break }
 
+            // Skip if already processed (prevents duplicates)
+            if processedShas.contains(commit.sha) { continue }
+
             do {
                 let diff: CommitDiff = try await github.fetch("repos/chickensintrees/async/commits/\(commit.sha)")
-                let event = calculator.processCommit(commit, diff: diff)
+
+                // processCommit returns nil for merge commits
+                guard let event = calculator.processCommit(commit, diff: diff) else { continue }
 
                 applyScoreEvent(event)
                 gameState.events.insert(event, at: 0)
