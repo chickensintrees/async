@@ -204,6 +204,25 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+section "TEST GARRISON"
+
+# Run tests silently and capture result
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEST_OUTPUT=$("$SCRIPT_DIR/run-tests.sh" 2>&1)
+TEST_EXIT=$?
+TEST_SUMMARY=$(echo "$TEST_OUTPUT" | grep "RESULT:" | sed 's/.*RESULT: //' | sed 's/\[0m//g' | sed 's/\[0;32m//g' | sed 's/\[0;31m//g')
+
+if [ $TEST_EXIT -eq 0 ]; then
+    status_ok "Tests: $TEST_SUMMARY"
+else
+    status_crit "Tests: $TEST_SUMMARY"
+    # Show first few test failures
+    echo "$TEST_OUTPUT" | grep -E "✗|FAIL|failed" | head -3 | while read line; do
+        printf "      ${DIM}${RED}$line${RESET}\n"
+    done
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 section "GITHUB SYNC"
 
 git fetch origin --quiet 2>/dev/null

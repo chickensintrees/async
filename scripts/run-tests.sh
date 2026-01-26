@@ -56,8 +56,10 @@ run_swift_tests() {
     local exit_code=$?
 
     # Parse XCTest output for counts
-    local passed=$(grep -c "Test Case.*passed" /tmp/test_output_${name}.txt 2>/dev/null || echo "0")
-    local failed=$(grep -c "Test Case.*failed" /tmp/test_output_${name}.txt 2>/dev/null || echo "0")
+    local passed
+    local failed
+    passed=$(grep -c "Test Case.*passed" /tmp/test_output_${name}.txt 2>/dev/null) || passed=0
+    failed=$(grep -c "Test Case.*failed" /tmp/test_output_${name}.txt 2>/dev/null) || failed=0
 
     TOTAL_PASSED=$((TOTAL_PASSED + passed))
     TOTAL_FAILED=$((TOTAL_FAILED + failed))
