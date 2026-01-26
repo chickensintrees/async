@@ -30,3 +30,6 @@ Package.resolved
 backend/supabase/.temp/
 app/Async.app/
 app/build/
+
+# Multi-agent coordination (local lock files)
+.agent-locks/
