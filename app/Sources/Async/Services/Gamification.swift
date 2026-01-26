@@ -396,13 +396,34 @@ class GamificationViewModel: ObservableObject {
         player.totalScore += event.points
         player.dailyScore += event.points
         player.weeklyScore += event.points
-        player.lastActivity = event.timestamp
 
         if event.points < 0 {
             player.penalties += abs(event.points)
         }
 
-        player.streak += 1
+        // Update streak based on consecutive days, not events
+        let calendar = Calendar.current
+        let eventDay = calendar.startOfDay(for: event.timestamp)
+
+        if let lastActivity = player.lastActivity {
+            let lastDay = calendar.startOfDay(for: lastActivity)
+            let daysDiff = calendar.dateComponents([.day], from: lastDay, to: eventDay).day ?? 0
+
+            if daysDiff == 0 {
+                // Same day - no streak change
+            } else if daysDiff == 1 {
+                // Consecutive day - increment streak
+                player.streak += 1
+            } else {
+                // Gap in activity - reset streak to 1
+                player.streak = 1
+            }
+        } else {
+            // First activity ever
+            player.streak = 1
+        }
+
+        player.lastActivity = event.timestamp
         gameState.players[event.oderId] = player
     }
 

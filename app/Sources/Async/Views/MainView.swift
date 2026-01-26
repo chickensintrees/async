@@ -90,51 +90,70 @@ struct UserProfileMenu: View {
     }
 }
 
-// MARK: - Messages View (wraps existing conversation UI)
+// MARK: - Messages View (flat layout, no nested NavigationSplitView)
 
 struct MessagesView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        NavigationSplitView {
-            ConversationListView()
-        } detail: {
+        HStack(spacing: 0) {
+            // Conversation list (left panel)
+            ConversationListPanel()
+                .frame(width: 260)
+
+            Divider()
+
+            // Conversation detail (right panel)
             if let conversation = appState.selectedConversation {
                 ConversationView(conversation: conversation)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 MessagesWelcomeView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-struct ConversationListView: View {
+struct ConversationListPanel: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        List(selection: $appState.selectedConversation) {
-            if appState.conversations.isEmpty {
-                Text("No conversations yet")
-                    .foregroundColor(.secondary)
-                    .italic()
-            } else {
-                ForEach(appState.conversations) { conversation in
-                    ConversationRow(conversation: conversation)
-                        .tag(conversation)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .frame(minWidth: 200)
-        .toolbar {
-            ToolbarItem {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Conversations")
+                    .font(.headline)
+                Spacer()
                 Button(action: { appState.showNewConversation = true }) {
                     Image(systemName: "plus")
                 }
+                .buttonStyle(.borderless)
                 .help("New Conversation")
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color(nsColor: .controlBackgroundColor))
+
+            Divider()
+
+            // List
+            List(selection: $appState.selectedConversation) {
+                if appState.conversations.isEmpty {
+                    Text("No conversations yet")
+                        .foregroundColor(.secondary)
+                        .italic()
+                } else {
+                    ForEach(appState.conversations) { conversation in
+                        ConversationRow(conversation: conversation)
+                            .tag(conversation)
+                    }
+                }
+            }
+            .listStyle(.plain)
         }
-        .navigationTitle("Conversations")
+        .frame(maxHeight: .infinity)
     }
 }
 
@@ -168,6 +187,7 @@ struct MessagesWelcomeView: View {
             .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -200,6 +220,7 @@ struct BacklogView: View {
                 .buttonStyle(.bordered)
             }
             .padding()
+            .frame(maxWidth: .infinity)
 
             Divider()
 
@@ -221,8 +242,10 @@ struct BacklogView: View {
                 List(backlogIssues) { issue in
                     BacklogIssueRow(issue: issue)
                 }
+                .listStyle(.inset)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             loadBacklog()
         }

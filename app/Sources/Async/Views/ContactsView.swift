@@ -35,6 +35,7 @@ struct ContactsView: View {
                 .buttonStyle(.bordered)
             }
             .padding()
+            .frame(maxWidth: .infinity)
 
             Divider()
 
@@ -62,8 +63,10 @@ struct ContactsView: View {
                         selectedContact = contact
                     })
                 }
+                .listStyle(.inset)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             loadContacts()
         }

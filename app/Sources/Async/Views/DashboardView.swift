@@ -47,35 +47,84 @@ struct DashboardView: View {
             DashboardHeader()
 
             ScrollView {
-                HStack(alignment: .top, spacing: 16) {
-                    // Left: Activity + Commits
-                    VStack(spacing: 16) {
-                        ActivityPanel()
-                        CommitsPanel()
-                    }
-                    .frame(minWidth: 280, maxWidth: 400)
+                ViewThatFits(in: .horizontal) {
+                    // 3-column layout (needs ~900px)
+                    ThreeColumnDashboard()
 
-                    // Center: Leaderboard + Commentary
-                    VStack(spacing: 16) {
-                        LeaderboardPanel()
-                        CommentaryPanel()
-                    }
-                    .frame(minWidth: 280, maxWidth: 400)
+                    // 2-column layout (needs ~600px)
+                    TwoColumnDashboard()
 
-                    // Right: Issues
-                    VStack(spacing: 16) {
-                        IssuesPanel()
-                    }
-                    .frame(minWidth: 200, maxWidth: 300)
+                    // Single column (always fits)
+                    SingleColumnDashboard()
                 }
                 .padding()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DesignTokens.bgPrimary)
         .task {
             // Process commits for scoring
             await gameVM.processNewCommits(viewModel.commits, using: GitHubService.shared)
         }
+    }
+}
+
+// MARK: - Dashboard Layouts
+
+struct ThreeColumnDashboard: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(spacing: 16) {
+                ActivityPanel()
+                CommitsPanel()
+            }
+            .frame(minWidth: 280, maxWidth: .infinity)
+
+            VStack(spacing: 16) {
+                LeaderboardPanel()
+                CommentaryPanel()
+            }
+            .frame(minWidth: 280, maxWidth: .infinity)
+
+            VStack(spacing: 16) {
+                IssuesPanel()
+            }
+            .frame(minWidth: 200, maxWidth: .infinity)
+        }
+        .frame(minWidth: 860)
+    }
+}
+
+struct TwoColumnDashboard: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(spacing: 16) {
+                LeaderboardPanel()
+                ActivityPanel()
+                CommitsPanel()
+            }
+            .frame(minWidth: 280, maxWidth: .infinity)
+
+            VStack(spacing: 16) {
+                IssuesPanel()
+                CommentaryPanel()
+            }
+            .frame(minWidth: 200, maxWidth: .infinity)
+        }
+        .frame(minWidth: 540)
+    }
+}
+
+struct SingleColumnDashboard: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            LeaderboardPanel()
+            ActivityPanel()
+            CommitsPanel()
+            IssuesPanel()
+            CommentaryPanel()
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

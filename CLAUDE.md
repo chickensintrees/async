@@ -412,6 +412,76 @@ Verify:
 4. **Native experience** - SwiftUI for polished macOS feel
 5. **Dogfood early** - Use the tool to build the tool
 
+## SwiftUI Best Practices (macOS)
+
+### Layout Architecture
+
+**CRITICAL: Avoid nested NavigationSplitView**
+- NavigationSplitView has confirmed bugs on macOS (rdar://122947424)
+- Causes mysterious vertical spacing equal to toolbar height
+- Nested NavigationSplitViews compound these issues
+
+**Flat Architecture Pattern:**
+```
+MainView (single NavigationSplitView)
+├── Sidebar (tab selection)
+└── Detail
+    ├── MessagesView (HStack, no NavigationSplitView)
+    ├── AdminView (HStack, no NavigationSplitView)
+    └── DashboardView (ViewThatFits)
+```
+
+### Panel Layout Pattern
+For master-detail views within a tab, use simple HStack:
+```swift
+HStack(spacing: 0) {
+    // Left panel - fixed width
+    LeftPanel()
+        .frame(width: 260)
+
+    Divider()
+
+    // Right panel - flexible
+    RightPanel()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+}
+.frame(maxWidth: .infinity, maxHeight: .infinity)
+```
+
+### Responsive Layouts with ViewThatFits
+Use `ViewThatFits` instead of GeometryReader for responsive layouts:
+```swift
+ViewThatFits(in: .horizontal) {
+    ThreeColumnLayout()  // Tried first, needs most space
+    TwoColumnLayout()    // Fallback
+    SingleColumnLayout() // Always fits
+}
+```
+
+Set `minWidth` on layouts to control breakpoints:
+```swift
+struct ThreeColumnLayout: View {
+    var body: some View {
+        HStack { ... }
+            .frame(minWidth: 860)  // Won't be chosen if < 860px
+    }
+}
+```
+
+### Key Frame Modifiers
+- `.frame(maxWidth: .infinity, maxHeight: .infinity)` - Fill available space
+- `.frame(width: 260)` - Fixed width panels
+- `.frame(minWidth: 280, maxWidth: .infinity)` - Flexible with minimum
+
+### Building & Installing
+Always use the install script to update the real app:
+```bash
+./app/scripts/install.sh   # Builds release, installs to /Applications
+open /Applications/Async.app
+```
+
+Never use `swift run` for testing - it runs a debug build without proper macOS integration.
+
 ## SMS Group Chat (STEF Integration)
 
 Bill and Noah can communicate via SMS with STEF as a participant. Both Claude Code instances share context through Supabase.

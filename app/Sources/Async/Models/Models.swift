@@ -78,7 +78,14 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
     }
 
     var displayTitle: String {
-        title ?? "Conversation"
+        if let title = title, !title.isEmpty {
+            return title
+        }
+        // Generate a fallback based on mode and date
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        return "\(mode.displayName) - \(formatter.string(from: createdAt))"
     }
 }
 

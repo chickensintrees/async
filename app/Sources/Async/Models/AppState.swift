@@ -439,6 +439,8 @@ class AppState: ObservableObject {
                 }
             }
             self.subscribers = result
+        } catch is CancellationError {
+            // Task was cancelled (e.g., user switched tabs) - ignore
         } catch {
             errorMessage = "Failed to load subscribers: \(error.localizedDescription)"
         }
@@ -469,6 +471,8 @@ class AppState: ObservableObject {
                 }
             }
             self.subscriptions = result
+        } catch is CancellationError {
+            // Task was cancelled - ignore
         } catch {
             errorMessage = "Failed to load subscriptions: \(error.localizedDescription)"
         }
@@ -564,6 +568,8 @@ class AppState: ObservableObject {
                 .value
 
             self.tags = userTags
+        } catch is CancellationError {
+            // Task was cancelled - ignore
         } catch {
             errorMessage = "Failed to load tags: \(error.localizedDescription)"
         }
