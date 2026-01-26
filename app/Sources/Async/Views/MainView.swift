@@ -33,12 +33,10 @@ struct MainView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .task {
-            await appState.loadOrCreateUser(
-                githubHandle: Config.currentUserGithubHandle,
-                displayName: Config.currentUserDisplayName
-            )
-            await appState.loadConversations()
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                UserProfileMenu()
+            }
         }
         .sheet(isPresented: $appState.showNewConversation) {
             NewConversationView()
@@ -50,6 +48,44 @@ struct MainView: View {
             Button("OK") { appState.errorMessage = nil }
         } message: {
             Text(appState.errorMessage ?? "")
+        }
+    }
+}
+
+// MARK: - User Profile Menu
+
+struct UserProfileMenu: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Menu {
+            if let user = appState.currentUser {
+                Text("@\(user.githubHandle ?? "unknown")")
+                    .font(.caption)
+                Divider()
+                Button(action: { appState.logout() }) {
+                    Label("Switch User", systemImage: "person.crop.circle.badge.xmark")
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if let user = appState.currentUser {
+                    Circle()
+                        .fill(user.githubHandle == "chickensintrees" ? Color.blue : Color.purple)
+                        .frame(width: 24, height: 24)
+                        .overlay(
+                            Text(String(user.displayName.prefix(1)))
+                                .font(.caption.bold())
+                                .foregroundColor(.white)
+                        )
+                    Text(user.displayName)
+                        .font(.subheadline)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
         }
     }
 }

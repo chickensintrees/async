@@ -17,6 +17,38 @@ This is a collaborative project. Before building features:
 2. Get input from collaborators (ginzatron)
 3. Reach consensus, then build
 
+### Multi-Agent Coordination
+**CRITICAL**: Multiple Claude Code agents may be working on this codebase simultaneously. Follow these rules:
+
+#### Before Making Changes
+1. **Check git status** - If there are uncommitted changes, another agent may be working
+2. **Check running processes** - Run `ps aux | grep swift` to see if builds are running
+3. **Communicate via file** - Check `~/.claude/agent-status.json` for active agents
+
+#### Claiming Work
+Before starting significant work:
+```bash
+# Claim your work area
+echo '{"agent": "agent-name", "working_on": "feature-x", "started": "'$(date -Iseconds)'"}' > ~/.claude/agent-claim.json
+```
+
+#### File-Level Locking
+- **Don't edit files another agent is actively editing**
+- If you see recent modifications (within last few minutes), ask the user which agent should proceed
+- Small, atomic commits reduce conflicts
+
+#### Conflict Resolution
+1. If you encounter merge conflicts, STOP and notify the user
+2. Don't force push or overwrite another agent's work
+3. Use feature branches for larger changes
+
+#### Safe Parallel Work
+These areas can usually be worked on in parallel:
+- Different Views (one agent on MainView, another on DashboardView)
+- Backend vs Frontend
+- Tests vs Implementation
+- Documentation vs Code
+
 ## Project Overview
 
 An asynchronous messaging application where an AI agent acts as an intermediary between parties:
