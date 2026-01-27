@@ -112,9 +112,12 @@ struct ConversationView: View {
     let conversationDetails: ConversationWithDetails
     @State private var newMessage = ""
     @State private var showDeleteConfirmation = false
-    @State private var scrollProxy: ScrollViewProxy?
+    @State private var shouldScrollToBottom = false
 
     private var conversation: Conversation { conversationDetails.conversation }
+
+    // Stable ID for scroll anchor at bottom
+    private let bottomAnchorId = "bottom-anchor"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -137,15 +140,29 @@ struct ConversationView: View {
                             )
                             .id(message.id)
                         }
+
+                        // Invisible anchor at the very bottom
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorId)
                     }
                     .padding()
                 }
-                .onChange(of: appState.messages) { _, newMessages in
-                    // Scroll when messages change (new message, edit, or conversation switch)
-                    scrollToBottom(proxy: proxy, animated: true)
+                .onChange(of: appState.messages.count) { _, _ in
+                    // Scroll when message count changes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+                        }
+                    }
                 }
-                .onAppear {
-                    scrollProxy = proxy
+                .onChange(of: shouldScrollToBottom) { _, shouldScroll in
+                    if shouldScroll {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+                            shouldScrollToBottom = false
+                        }
+                    }
                 }
             }
 
@@ -156,23 +173,8 @@ struct ConversationView: View {
         }
         .task(id: conversationDetails.conversation.id) {
             await appState.loadMessages(for: conversationDetails)
-            // Scroll to bottom after messages load
-            if let proxy = scrollProxy {
-                // Small delay to let SwiftUI render messages
-                try? await Task.sleep(for: .milliseconds(100))
-                scrollToBottom(proxy: proxy, animated: false)
-            }
-        }
-    }
-
-    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
-        guard let lastMessage = appState.messages.last else { return }
-        if animated {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(lastMessage.id, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            // Trigger scroll after messages load
+            shouldScrollToBottom = true
         }
     }
 
