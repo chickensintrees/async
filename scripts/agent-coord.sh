@@ -81,6 +81,9 @@ case "$1" in
 
         echo "REGISTERED: $AGENT_ID"
         echo "Task: $task"
+
+        # Auto-sync to GitHub
+        "$0" sync-github 2>/dev/null && echo "Synced to GitHub" || true
         ;;
 
     update)
@@ -104,6 +107,9 @@ case "$1" in
            }' "$COORD_FILE" > "$TEMP" && mv "$TEMP" "$COORD_FILE"
 
         echo "UPDATED: $task"
+
+        # Auto-sync to GitHub
+        "$0" sync-github 2>/dev/null && echo "Synced to GitHub" || true
         ;;
 
     heartbeat)
@@ -120,6 +126,9 @@ case "$1" in
         jq --arg id "$AGENT_ID" '.agents = [.agents[] | select(.id != $id)]' "$COORD_FILE" > "$TEMP" && mv "$TEMP" "$COORD_FILE"
 
         echo "DEREGISTERED: $AGENT_ID"
+
+        # Auto-sync to GitHub
+        "$0" sync-github 2>/dev/null && echo "Synced to GitHub" || true
         ;;
 
     status)
