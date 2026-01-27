@@ -7,6 +7,7 @@ enum AdminPortalTab: String, CaseIterable {
 
 struct AdminPortalView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: AdminPortalTab = .subscribers
     @State private var showTagManager = false
     @State private var showSubscribeSheet = false
@@ -59,6 +60,12 @@ struct AdminPortalView: View {
         }
         .navigationTitle("Admin Portal")
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") {
+                    dismiss()
+                }
+            }
+
             ToolbarItemGroup(placement: .primaryAction) {
                 if selectedTab == .subscribers {
                     Button(action: { showTagManager = true }) {
