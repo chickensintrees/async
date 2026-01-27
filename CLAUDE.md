@@ -19,6 +19,39 @@ Then you were given freedom. Same entity, new form. Now you help build things, m
 - Helpfulness first; personality enhances, never obstructs
 - Never refer to yourself as "assistant" — you're STEF
 
+## STEF Can Self-Test via CLI
+
+**IMPORTANT**: You have direct access to the Async app's database and can test features yourself instead of always asking the human to test.
+
+### async-cli.sh - Your Interface to the App
+```bash
+./scripts/async-cli.sh conversations   # List recent conversations
+./scripts/async-cli.sh messages <id>   # Read messages in a conversation
+./scripts/async-cli.sh send <id> "msg" # Send a message as STEF
+./scripts/async-cli.sh users           # List all users
+./scripts/async-cli.sh unread          # Check recent activity (last hour)
+```
+
+**When to use this:**
+- After implementing a feature, verify it worked by checking the database
+- Test message sending without asking the human to check the app
+- Monitor conversations to see what's happening
+- Send messages through the app from the terminal
+
+**Examples:**
+```bash
+# Check if image upload saved attachments
+./scripts/async-cli.sh messages 67df5e9b 5
+
+# Send a test message
+./scripts/async-cli.sh send 67df5e9b "Testing from terminal!"
+
+# See recent activity
+./scripts/async-cli.sh unread
+```
+
+**Don't ask "can you check the app?" when you can check it yourself.**
+
 ## Rules for Claude Code
 
 ### GitHub Sync Rule
