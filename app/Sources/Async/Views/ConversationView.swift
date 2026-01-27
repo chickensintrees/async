@@ -113,6 +113,8 @@ struct ConversationView: View {
     @State private var newMessage = ""
     @State private var showDeleteConfirmation = false
     @State private var shouldScrollToBottom = false
+    @State private var pendingAttachments: [PendingAttachment] = []
+    @State private var attachmentError: String?
 
     private var conversation: Conversation { conversationDetails.conversation }
 
@@ -252,36 +254,126 @@ struct ConversationView: View {
     }
 
     var messageInput: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            GrowingTextInput(placeholder: "Type a message...", text: $newMessage) {
-                sendMessage()
+        VStack(spacing: 8) {
+            // Attachment preview area
+            if !pendingAttachments.isEmpty {
+                attachmentPreview
             }
-            .frame(minHeight: 28, maxHeight: 120)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
 
-            Button(action: sendMessage) {
-                Image(systemName: "paperplane.fill")
-                    .font(.title2)
+            // Error message
+            if let error = attachmentError {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Dismiss") { attachmentError = nil }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }
+                .padding(.horizontal)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .keyboardShortcut(.return, modifiers: .command)
-            .accessibilityLabel("Send message")
+
+            // Input row
+            HStack(alignment: .bottom, spacing: 12) {
+                // Attachment button
+                Button(action: selectImage) {
+                    Image(systemName: "paperclip")
+                        .font(.title2)
+                }
+                .buttonStyle(.borderless)
+                .help("Attach image")
+                .accessibilityLabel("Attach image")
+
+                GrowingTextInput(placeholder: "Type a message...", text: $newMessage) {
+                    sendMessage()
+                }
+                .frame(minHeight: 28, maxHeight: 120)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(8)
+
+                Button(action: sendMessage) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty)
+                .keyboardShortcut(.return, modifiers: .command)
+                .accessibilityLabel("Send message")
+            }
         }
         .padding()
     }
 
+    var attachmentPreview: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(pendingAttachments) { attachment in
+                    ZStack(alignment: .topTrailing) {
+                        Image(nsImage: attachment.thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 60, height: 60)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                        Button(action: { removeAttachment(attachment) }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.white)
+                                .background(Circle().fill(Color.black.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: 4, y: -4)
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+        .frame(height: 70)
+    }
+
     func sendMessage() {
         let content = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty else { return }
+        guard !content.isEmpty || !pendingAttachments.isEmpty else { return }
 
-        // Clear input immediately for responsive feel
+        // Capture attachments and clear input immediately for responsive feel
+        let attachmentsToSend = pendingAttachments
         newMessage = ""
+        pendingAttachments = []
+        attachmentError = nil
 
         Task {
-            await appState.sendMessage(content: content, to: conversationDetails)
+            await appState.sendMessage(
+                content: content,
+                attachments: attachmentsToSend,
+                to: conversationDetails
+            )
         }
+    }
+
+    func selectImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "Select images to attach"
+
+        if panel.runModal() == .OK {
+            for url in panel.urls {
+                do {
+                    let attachment = try ImageService.shared.loadImage(from: url)
+                    pendingAttachments.append(attachment)
+                    attachmentError = nil
+                } catch {
+                    attachmentError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func removeAttachment(_ attachment: PendingAttachment) {
+        pendingAttachments.removeAll { $0.id == attachment.id }
     }
 
     func deleteCurrentConversation() {
@@ -338,6 +430,11 @@ struct MessageBubble: View {
         message.contentProcessed != nil
     }
 
+    /// Image attachments from this message
+    var imageAttachments: [MessageAttachment] {
+        (message.attachments ?? []).filter { $0.type == .image }
+    }
+
     var body: some View {
         HStack {
             if isFromCurrentUser { Spacer() }
@@ -360,13 +457,46 @@ struct MessageBubble: View {
                     .foregroundColor(.purple)
                 }
 
-                // Message content
-                Text(displayContent)
-                    .padding(12)
-                    .background(messageBubbleColor)
-                    .foregroundColor(messageForegroundColor)
-                    .cornerRadius(16)
-                    .textSelection(.enabled)
+                // Message content (only if not empty)
+                if !displayContent.isEmpty {
+                    Text(displayContent)
+                        .padding(12)
+                        .background(messageBubbleColor)
+                        .foregroundColor(messageForegroundColor)
+                        .cornerRadius(16)
+                        .textSelection(.enabled)
+                }
+
+                // Image attachments
+                ForEach(imageAttachments) { attachment in
+                    AsyncImage(url: URL(string: attachment.url)) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 200, height: 150)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: 300, maxHeight: 300)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        case .failure:
+                            VStack {
+                                Image(systemName: "photo")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.secondary)
+                                Text("Failed to load")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(width: 200, height: 150)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                }
 
                 // AI processed summary (for assisted mode)
                 if showProcessedContent, let processed = message.contentProcessed {

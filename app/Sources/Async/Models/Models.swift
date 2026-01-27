@@ -569,6 +569,7 @@ struct Message: Codable, Identifiable, Equatable {
     let createdAt: Date
     let processedAt: Date?
     let rawVisibleTo: [UUID]?
+    let attachments: [MessageAttachment]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -581,6 +582,7 @@ struct Message: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case processedAt = "processed_at"
         case rawVisibleTo = "raw_visible_to"
+        case attachments
     }
 
     /// Returns the content to display based on conversation mode and viewer
