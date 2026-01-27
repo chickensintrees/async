@@ -450,6 +450,33 @@ Since no messenger-specific plugins exist, here are key SwiftUI patterns for cha
 
 Schema: `backend/database/schema.sql`
 
+### Running Database Migrations (STEF CAN DO THIS)
+
+**DO NOT ask the user to run SQL manually.** STEF can run migrations directly:
+
+```bash
+# 1. Link the project (one-time, already done)
+cd ~/Projects/async
+supabase link --project-ref ujokdwgpwruyiuioseir
+
+# 2. Create a new migration
+supabase migration new my_migration_name
+# Creates: supabase/migrations/TIMESTAMP_my_migration_name.sql
+
+# 3. Write the SQL to that file
+# Edit: supabase/migrations/TIMESTAMP_my_migration_name.sql
+
+# 4. Push to remote database
+supabase db push
+# Applies pending migrations to production Supabase
+```
+
+**Also keep a copy** in `backend/database/migrations/` for documentation (numbered format like `009_my_migration.sql`).
+
+**Common schema issues:**
+- "Could not find column X" → Model expects column that doesn't exist → Create migration to add it
+- Always check both `app/Sources/Async/Models/` AND `backend/database/schema.sql` for mismatches
+
 ## Repository Structure
 
 ```
