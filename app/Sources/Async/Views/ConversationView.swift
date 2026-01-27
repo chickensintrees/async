@@ -171,7 +171,7 @@ struct ConversationView: View {
                                 message: message,
                                 isFromCurrentUser: message.senderId == appState.currentUser?.id,
                                 conversationMode: conversation.mode,
-                                senderName: conversationDetails.participants.first { $0.id == message.senderId }?.displayName,
+                                senderName: message.senderId.flatMap { senderName(for: $0, in: conversationDetails, appState: appState) },
                                 isAgentOnlyChat: conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == appState.currentUser?.id },
                                 pendingActions: appState.pendingActions[message.id] ?? [],
                                 onActionExecute: { action in
@@ -506,6 +506,34 @@ struct ConversationView: View {
             await appState.deleteConversation(idToDelete)
         }
     }
+}
+
+// MARK: - Helper Functions
+
+/// Get sender name, checking participants first, then known agents
+@MainActor
+private func senderName(for senderId: UUID, in conversationDetails: ConversationWithDetails, appState: AppState) -> String? {
+    // First check conversation participants
+    if let participant = conversationDetails.participants.first(where: { $0.id == senderId }) {
+        return participant.displayName
+    }
+
+    // Check if it's the current user
+    if senderId == appState.currentUser?.id {
+        return appState.currentUser?.displayName
+    }
+
+    // Check well-known agent IDs
+    if senderId == AppState.stefAgentId {
+        return "STEF"
+    }
+    // Greg's well-known ID
+    if senderId == UUID(uuidString: "00000000-0000-0000-0000-000000000002") {
+        return "Greg"
+    }
+
+    // Unknown sender
+    return nil
 }
 
 // MARK: - Message Bubble

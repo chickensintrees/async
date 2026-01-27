@@ -647,32 +647,47 @@ class AppState: ObservableObject {
             let agentParticipants = conversationDetails.participants.filter { $0.isAgent }
             let allAgents = await loadAgents()
 
+            // DEBUG: Log participant info to track down unwanted STEF responses
+            print("🔍 [AGENT-CHECK] Participants: \(conversationDetails.participants.map { "\($0.displayName) (agent=\($0.isAgent))" })")
+            print("🔍 [AGENT-CHECK] Agent participants: \(agentParticipants.map { $0.displayName })")
+            print("🔍 [AGENT-CHECK] All agents in system: \(allAgents.map { $0.displayName })")
+
             // Determine which agents to trigger:
             // 1. In true 1:1 with single agent: that agent always responds
             // 2. Otherwise: only respond if @mentioned (prevents double-triggers)
             let isAgentOnlyChat = conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == user.id }
             let agentCount = agentParticipants.count
 
+            print("🔍 [AGENT-CHECK] isAgentOnlyChat=\(isAgentOnlyChat), agentCount=\(agentCount)")
+
             var agentsToRespond: [User] = []
 
             if isAgentOnlyChat && agentCount == 1 {
                 // True 1:1 with single agent - always respond
+                print("🔍 [AGENT-CHECK] Path: 1:1 with single agent, auto-responding")
                 agentsToRespond = agentParticipants
             } else {
                 // Multi-agent chat or mixed - only respond if @mentioned
                 // This prevents double-triggers when one agent @mentions another
+                print("🔍 [AGENT-CHECK] Path: checking @mentions in '\(content)'")
                 for agent in agentParticipants {
-                    if MediatorService.shared.isAgentMentioned(agent, in: content) {
+                    let mentioned = MediatorService.shared.isAgentMentioned(agent, in: content)
+                    print("🔍 [AGENT-CHECK] Participant \(agent.displayName) mentioned=\(mentioned)")
+                    if mentioned {
                         agentsToRespond.append(agent)
                     }
                 }
                 // Also check for agents not in conversation but @mentioned
                 for agent in allAgents where !agentParticipants.contains(where: { $0.id == agent.id }) {
-                    if MediatorService.shared.isAgentMentioned(agent, in: content) {
+                    let mentioned = MediatorService.shared.isAgentMentioned(agent, in: content)
+                    print("🔍 [AGENT-CHECK] Non-participant \(agent.displayName) mentioned=\(mentioned)")
+                    if mentioned {
                         agentsToRespond.append(agent)
                     }
                 }
             }
+
+            print("🔍 [AGENT-CHECK] Final agentsToRespond: \(agentsToRespond.map { $0.displayName })")
 
             // Generate responses from mentioned agents
             for agent in agentsToRespond {
