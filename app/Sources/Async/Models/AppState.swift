@@ -617,7 +617,8 @@ class AppState: ObservableObject {
                 from: agent,
                 conversationHistory: messages,
                 senderName: senderName,
-                participants: conversationDetails.participants
+                participants: conversationDetails.participants,
+                conversationId: conversation.id
             )
 
             // Create the agent's message

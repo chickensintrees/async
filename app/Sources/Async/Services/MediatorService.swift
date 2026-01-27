@@ -288,13 +288,15 @@ class MediatorService {
     ///   - conversationHistory: Recent messages for context
     ///   - senderName: Name of the person who sent the message
     ///   - participants: All participants in the conversation
+    ///   - conversationId: ID of current conversation (for cross-conversation context)
     /// - Returns: The agent's response text
     func generateAgentResponse(
         to userMessage: String,
         from agent: User,
         conversationHistory: [Message],
         senderName: String,
-        participants: [User] = []
+        participants: [User] = [],
+        conversationId: UUID
     ) async throws -> String {
         guard agent.isAgent else {
             throw MediatorError.apiError("Cannot generate response for non-agent user")
@@ -318,7 +320,19 @@ class MediatorService {
         let participantIds = participants.map { $0.id }
         let memories = await loadRelevantMemories(for: agent.id, participants: participantIds)
 
-        let systemPrompt = buildAgentSystemPrompt(for: agent, config: config, otherAgents: allAgents, memories: memories)
+        // Load cross-conversation context (agent's other active conversations)
+        let crossContext = await loadCrossConversationContext(
+            for: agent.id,
+            excludeConversationId: conversationId
+        )
+
+        let systemPrompt = buildAgentSystemPrompt(
+            for: agent,
+            config: config,
+            otherAgents: allAgents,
+            memories: memories,
+            crossConversationContext: crossContext
+        )
         let userPrompt = buildAgentUserPrompt(
             userMessage: userMessage,
             senderName: senderName,
@@ -468,6 +482,153 @@ class MediatorService {
             debugLog("✅ Successfully stored: [\(memory.contextType)] \(memory.title)")
         } catch {
             debugLog("❌ FAILED to store memory: \(error)")
+        }
+    }
+
+    // MARK: - Cross-Conversation Context
+
+    /// Load context from agent's OTHER active conversations
+    /// - Parameters:
+    ///   - agentId: The agent whose other conversations to load
+    ///   - excludeConversationId: Current conversation to exclude
+    ///   - maxConversations: Maximum number of other conversations (default: 3)
+    ///   - messagesPerConversation: Messages to load per conversation (default: 5)
+    /// - Returns: Array of cross-conversation context
+    func loadCrossConversationContext(
+        for agentId: UUID,
+        excludeConversationId: UUID,
+        maxConversations: Int = 3,
+        messagesPerConversation: Int = 5
+    ) async -> [CrossConversationContext] {
+        debugLog("loadCrossConversationContext for agent \(agentId), excluding \(excludeConversationId)")
+
+        do {
+            // Step 1: Get all conversations where agent is a participant
+            let participations: [ConversationParticipant] = try await supabase
+                .from("conversation_participants")
+                .select()
+                .eq("user_id", value: agentId.uuidString)
+                .execute()
+                .value
+
+            let conversationIds = participations
+                .map { $0.conversationId }
+                .filter { $0 != excludeConversationId }
+
+            guard !conversationIds.isEmpty else {
+                debugLog("No other conversations found for agent")
+                return []
+            }
+
+            // Step 2: Get conversation details (excluding private ones)
+            let conversations: [Conversation] = try await supabase
+                .from("conversations")
+                .select()
+                .in("id", values: conversationIds.map { $0.uuidString })
+                .eq("is_private", value: false)
+                .order("last_message_at", ascending: false)
+                .limit(maxConversations)
+                .execute()
+                .value
+
+            debugLog("Found \(conversations.count) non-private conversations")
+
+            // Step 3: Build context for each conversation
+            var contexts: [CrossConversationContext] = []
+
+            for conversation in conversations {
+                // Load participants for this conversation
+                let participants = await loadConversationParticipants(conversation.id)
+
+                // Skip if no human participants (human-only conversations stay private)
+                guard participants.contains(where: { $0.isHuman }) else {
+                    debugLog("Skipping \(conversation.id) - no human participants")
+                    continue
+                }
+
+                // Load recent messages
+                let messages = await loadRecentMessages(
+                    for: conversation.id,
+                    limit: messagesPerConversation,
+                    participantLookup: participants
+                )
+
+                let context = CrossConversationContext(
+                    conversationId: conversation.id,
+                    conversationTitle: conversation.title,
+                    participantNames: participants.filter { !$0.isAgent }.map { $0.displayName },
+                    recentMessages: messages,
+                    lastActivityAt: conversation.lastMessageAt ?? conversation.updatedAt
+                )
+
+                contexts.append(context)
+            }
+
+            debugLog("Built \(contexts.count) cross-conversation contexts")
+            return contexts
+
+        } catch {
+            debugLog("❌ FAILED to load cross-conversation context: \(error)")
+            return []
+        }
+    }
+
+    /// Load participants for a conversation
+    private func loadConversationParticipants(_ conversationId: UUID) async -> [User] {
+        do {
+            let participations: [ConversationParticipant] = try await supabase
+                .from("conversation_participants")
+                .select()
+                .eq("conversation_id", value: conversationId.uuidString)
+                .execute()
+                .value
+
+            var users: [User] = []
+            for participation in participations {
+                let userResults: [User] = try await supabase
+                    .from("users")
+                    .select()
+                    .eq("id", value: participation.userId.uuidString)
+                    .execute()
+                    .value
+                if let user = userResults.first {
+                    users.append(user)
+                }
+            }
+            return users
+        } catch {
+            return []
+        }
+    }
+
+    /// Load recent messages from a conversation (for cross-context)
+    private func loadRecentMessages(
+        for conversationId: UUID,
+        limit: Int,
+        participantLookup: [User]
+    ) async -> [CrossConversationMessage] {
+        do {
+            let messages: [Message] = try await supabase
+                .from("messages")
+                .select()
+                .eq("conversation_id", value: conversationId.uuidString)
+                .order("created_at", ascending: false)
+                .limit(limit)
+                .execute()
+                .value
+
+            // Reverse to get chronological order and convert
+            return messages.reversed().map { msg in
+                let sender = participantLookup.first { $0.id == msg.senderId }
+                return CrossConversationMessage(
+                    senderName: sender?.displayName ?? "Unknown",
+                    content: String(msg.contentRaw.prefix(200)),  // Truncate for token savings
+                    timestamp: msg.createdAt,
+                    isFromAgent: msg.isFromAgent
+                )
+            }
+        } catch {
+            return []
         }
     }
 
@@ -665,7 +826,13 @@ class MediatorService {
 
     // MARK: - System Prompt Building
 
-    private func buildAgentSystemPrompt(for agent: User, config: AgentConfig?, otherAgents: [User], memories: [AgentMemory] = []) -> String {
+    private func buildAgentSystemPrompt(
+        for agent: User,
+        config: AgentConfig?,
+        otherAgents: [User],
+        memories: [AgentMemory] = [],
+        crossConversationContext: [CrossConversationContext] = []
+    ) -> String {
         // Use config from database if available
         var prompt = config?.systemPrompt ?? buildDefaultPrompt(for: agent)
 
@@ -719,6 +886,33 @@ class MediatorService {
                 prompt += "\n- [\(dateStr)] [\(memory.contextType.uppercased())] \(memory.content)"
             }
             prompt += "\n\nUse these memories naturally - don't explicitly mention 'I remember' unless relevant."
+        }
+
+        // Inject cross-conversation context (other active conversations)
+        if !crossConversationContext.isEmpty {
+            prompt += "\n\nYOUR OTHER ACTIVE CONVERSATIONS:"
+            prompt += "\n(You have insight into these conversations. Use this knowledge thoughtfully and"
+            prompt += "\ndiscretely - don't explicitly reference 'your other conversation' unless directly"
+            prompt += "\nrelevant and helpful.)"
+
+            let timeFormatter = DateFormatter()
+            timeFormatter.dateFormat = "MMM d, h:mm a"
+
+            for context in crossConversationContext {
+                let title = context.conversationTitle ?? "Chat with \(context.participantNames.joined(separator: ", "))"
+                let lastActivity = timeFormatter.string(from: context.lastActivityAt)
+
+                prompt += "\n\n--- \(title) (last active: \(lastActivity)) ---"
+                for msg in context.recentMessages {
+                    let timestamp = timeFormatter.string(from: msg.timestamp)
+                    let prefix = msg.isFromAgent ? "[You]" : "[\(msg.senderName)]"
+                    prompt += "\n[\(timestamp)] \(prefix): \(msg.content)"
+                }
+            }
+
+            prompt += "\n\n---"
+            prompt += "\nBe discrete: Don't volunteer that you know things from other conversations"
+            prompt += "\nunless it's genuinely helpful and contextually appropriate."
         }
 
         return prompt

@@ -115,6 +115,34 @@ struct AgentMemory: Codable, Identifiable {
     }
 }
 
+// MARK: - Cross-Conversation Context (for agent memory across conversations)
+
+/// Context from another conversation for cross-conversation agent memory
+struct CrossConversationContext: Codable, Identifiable {
+    let conversationId: UUID
+    let conversationTitle: String?
+    let participantNames: [String]
+    let recentMessages: [CrossConversationMessage]
+    let lastActivityAt: Date
+
+    var id: UUID { conversationId }
+
+    /// Brief summary for the agent prompt
+    var promptSummary: String {
+        let participants = participantNames.isEmpty ? "Unknown" : participantNames.joined(separator: ", ")
+        let title = conversationTitle ?? "Conversation with \(participants)"
+        return "[\(title)] - \(recentMessages.count) recent messages"
+    }
+}
+
+/// A message from another conversation (for cross-conversation context)
+struct CrossConversationMessage: Codable {
+    let senderName: String
+    let content: String
+    let timestamp: Date
+    let isFromAgent: Bool
+}
+
 // MARK: - Agent Config
 
 struct AgentConfig: Codable, Identifiable {
@@ -353,6 +381,7 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
     let topic: String?
     let canonicalKey: String?
     let lastMessageAt: Date?
+    let isPrivate: Bool  // When true, agents can't access from other conversations
     let createdAt: Date
     let updatedAt: Date
 
@@ -364,6 +393,7 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
         case topic
         case canonicalKey = "canonical_key"
         case lastMessageAt = "last_message_at"
+        case isPrivate = "is_private"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -395,13 +425,16 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
         topic = try container.decodeIfPresent(String.self, forKey: .topic)
         canonicalKey = try container.decodeIfPresent(String.self, forKey: .canonicalKey)
         lastMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastMessageAt)
+        // Default to false - agents can access unless explicitly private
+        isPrivate = try container.decodeIfPresent(Bool.self, forKey: .isPrivate) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 
     init(id: UUID, mode: ConversationMode, kind: ConversationKind = .directGroup,
          title: String? = nil, topic: String? = nil, canonicalKey: String? = nil,
-         lastMessageAt: Date? = nil, createdAt: Date = Date(), updatedAt: Date = Date()) {
+         lastMessageAt: Date? = nil, isPrivate: Bool = false,
+         createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = id
         self.mode = mode
         self.kind = kind
@@ -409,6 +442,7 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
         self.topic = topic
         self.canonicalKey = canonicalKey
         self.lastMessageAt = lastMessageAt
+        self.isPrivate = isPrivate
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

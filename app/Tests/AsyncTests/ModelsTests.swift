@@ -531,3 +531,133 @@ final class ConnectionWithUserTests: XCTestCase {
         XCTAssertEqual(set.count, 1)
     }
 }
+
+// MARK: - Conversation Privacy Tests
+
+final class ConversationPrivacyTests: XCTestCase {
+
+    func testIsPrivate_defaultsFalse() {
+        let conv = Conversation(
+            id: UUID(),
+            mode: .assisted,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        XCTAssertFalse(conv.isPrivate)
+    }
+
+    func testIsPrivate_explicitTrue() {
+        let conv = Conversation(
+            id: UUID(),
+            mode: .assisted,
+            isPrivate: true,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        XCTAssertTrue(conv.isPrivate)
+    }
+
+    func testIsPrivate_explicitFalse() {
+        let conv = Conversation(
+            id: UUID(),
+            mode: .direct,
+            isPrivate: false,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        XCTAssertFalse(conv.isPrivate)
+    }
+}
+
+// MARK: - CrossConversationContext Tests
+
+final class CrossConversationContextTests: XCTestCase {
+
+    func testPromptSummary_withTitle() {
+        let context = CrossConversationContext(
+            conversationId: UUID(),
+            conversationTitle: "Project Planning",
+            participantNames: ["Bill", "Noah"],
+            recentMessages: [makeMessage(), makeMessage()],
+            lastActivityAt: Date()
+        )
+        XCTAssertTrue(context.promptSummary.contains("Project Planning"))
+        XCTAssertTrue(context.promptSummary.contains("2 recent messages"))
+    }
+
+    func testPromptSummary_withoutTitle() {
+        let context = CrossConversationContext(
+            conversationId: UUID(),
+            conversationTitle: nil,
+            participantNames: ["Bill"],
+            recentMessages: [],
+            lastActivityAt: Date()
+        )
+        XCTAssertTrue(context.promptSummary.contains("Bill"))
+        XCTAssertTrue(context.promptSummary.contains("0 recent messages"))
+    }
+
+    func testPromptSummary_emptyParticipants() {
+        let context = CrossConversationContext(
+            conversationId: UUID(),
+            conversationTitle: nil,
+            participantNames: [],
+            recentMessages: [],
+            lastActivityAt: Date()
+        )
+        XCTAssertTrue(context.promptSummary.contains("Unknown"))
+    }
+
+    func testIdentifiable_usesConversationId() {
+        let convId = UUID()
+        let context = CrossConversationContext(
+            conversationId: convId,
+            conversationTitle: nil,
+            participantNames: [],
+            recentMessages: [],
+            lastActivityAt: Date()
+        )
+        XCTAssertEqual(context.id, convId)
+    }
+
+    private func makeMessage() -> CrossConversationMessage {
+        CrossConversationMessage(
+            senderName: "Test",
+            content: "Hello",
+            timestamp: Date(),
+            isFromAgent: false
+        )
+    }
+}
+
+// MARK: - CrossConversationMessage Tests
+
+final class CrossConversationMessageTests: XCTestCase {
+
+    func testMessageInit() {
+        let timestamp = Date()
+        let message = CrossConversationMessage(
+            senderName: "Bill",
+            content: "Hello world",
+            timestamp: timestamp,
+            isFromAgent: false
+        )
+
+        XCTAssertEqual(message.senderName, "Bill")
+        XCTAssertEqual(message.content, "Hello world")
+        XCTAssertEqual(message.timestamp, timestamp)
+        XCTAssertFalse(message.isFromAgent)
+    }
+
+    func testMessageFromAgent() {
+        let message = CrossConversationMessage(
+            senderName: "STEF",
+            content: "I can help with that",
+            timestamp: Date(),
+            isFromAgent: true
+        )
+
+        XCTAssertTrue(message.isFromAgent)
+        XCTAssertEqual(message.senderName, "STEF")
+    }
+}
