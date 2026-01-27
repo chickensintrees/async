@@ -30,8 +30,77 @@ interface TwilioMessage {
   MessageSid: string;
 }
 
+// Validate Twilio webhook signature to prevent forged requests
+async function validateTwilioSignature(req: Request, body: string): Promise<boolean> {
+  const signature = req.headers.get("X-Twilio-Signature");
+  if (!signature) {
+    console.error("Missing X-Twilio-Signature header");
+    return false;
+  }
+
+  // Get the full URL that Twilio called
+  const url = req.url;
+
+  // Parse form data and sort parameters alphabetically (Twilio's algorithm)
+  const params = new URLSearchParams(body);
+  const sortedParams: string[] = [];
+  const keys = Array.from(params.keys()).sort();
+  for (const key of keys) {
+    sortedParams.push(key + params.get(key));
+  }
+
+  // Create the validation string: URL + sorted params
+  const validationString = url + sortedParams.join("");
+
+  // HMAC-SHA1 with auth token
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(TWILIO_AUTH_TOKEN);
+  const messageData = encoder.encode(validationString);
+
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"]
+    );
+    const signatureBytes = await crypto.subtle.sign("HMAC", key, messageData);
+    const computed = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
+    return computed === signature;
+  } catch {
+    return false;
+  }
+}
+
+// Escape XML special characters to prevent injection attacks
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+// Validate phone number format (E.164)
+function isValidPhoneNumber(phone: string): boolean {
+  const phoneRegex = /^\+[1-9]\d{6,14}$/;
+  return phoneRegex.test(phone);
+}
+
 serve(async (req) => {
   try {
+    // Clone request to read body for validation
+    const bodyText = await req.clone().text();
+
+    // Validate Twilio signature to prevent forged requests
+    const isValid = await validateTwilioSignature(req, bodyText);
+    if (!isValid) {
+      console.error("Invalid Twilio signature - rejecting request");
+      return new Response("Forbidden", { status: 403 });
+    }
+
     // Parse Twilio webhook (form-urlencoded)
     const formData = await req.formData();
     const message: TwilioMessage = {
@@ -41,7 +110,15 @@ serve(async (req) => {
       MessageSid: formData.get("MessageSid") as string,
     };
 
-    console.log(`SMS from ${message.From}: ${message.Body}`);
+    // Validate phone number format
+    if (!isValidPhoneNumber(message.From)) {
+      console.error("Invalid phone number format");
+      return twimlResponse("Invalid phone number");
+    }
+
+    // Sanitize phone number for logging (don't expose full number in logs)
+    const sanitizedPhone = message.From.slice(0, 4) + "***" + message.From.slice(-2);
+    console.log(`SMS from ${sanitizedPhone}: [message received]`);
 
     // Initialize Supabase client with service role
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -217,9 +294,10 @@ async function sendTwilioSMS(to: string, body: string) {
 }
 
 // Return TwiML response (empty or with message)
+// Uses escapeXml to prevent XML injection attacks
 function twimlResponse(message?: string) {
   const body = message
-    ? `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${message}</Message></Response>`
+    ? `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(message)}</Message></Response>`
     : `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
 
   return new Response(body, {

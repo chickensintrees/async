@@ -1915,10 +1915,15 @@ struct AboutSettingsView: View {
 // MARK: - Extensions
 
 extension Date {
-    var relativeString: String {
+    // Cached formatter to avoid creating one per view render (26+ times per frame)
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: self, relativeTo: Date())
+        return formatter
+    }()
+
+    var relativeString: String {
+        Date.relativeFormatter.localizedString(for: self, relativeTo: Date())
     }
 }
 

@@ -714,22 +714,39 @@ struct DebugSettingsTab: View {
     @State private var showEmojiStatus = false
     @State private var showStatusStatus = false
 
-    private let jenniferPhone = "+14155316099"
-    private let billPhone = "+14129659754"
+    // Configurable test phone numbers (stored in UserDefaults, not hardcoded)
+    @AppStorage("debug_test_phone_1") private var testPhone1 = ""
+    @AppStorage("debug_test_phone_2") private var testPhone2 = ""
 
     private let emojis = ["😀", "🎉", "🚀", "💜", "🔥", "✨", "🌈", "🦄", "🍕", "🎸",
                          "🌟", "💫", "🎯", "🏆", "💪", "🤖", "👾", "🎮", "🌮", "🍩"]
 
     var body: some View {
         Form {
+            Section("Test Phone Numbers") {
+                TextField("Test Phone 1 (e.g., +14155551234)", text: $testPhone1)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Test Phone 2 (e.g., +14125551234)", text: $testPhone2)
+                    .textFieldStyle(.roundedBorder)
+                Text("Enter phone numbers in E.164 format. These are stored locally, not in code.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             Section("Twilio SMS Test") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Send random emojis to Jennifer")
+                    Text("Send random emojis")
                         .font(.headline)
 
-                    Text("Phone: \(jenniferPhone)")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+                    if testPhone1.isEmpty {
+                        Text("Configure Test Phone 1 above to enable")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    } else {
+                        Text("To: \(testPhone1)")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
 
                     Button(action: sendRandomEmojis) {
                         HStack {
@@ -738,11 +755,11 @@ struct DebugSettingsTab: View {
                                     .scaleEffect(0.7)
                                     .padding(.trailing, 4)
                             }
-                            Text(isSendingEmoji ? "Sending..." : "Send Random Emojis to Jennifer")
+                            Text(isSendingEmoji ? "Sending..." : "Send Random Emojis")
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isSendingEmoji)
+                    .disabled(isSendingEmoji || testPhone1.isEmpty)
 
                     if showEmojiStatus {
                         Text(emojiStatusMessage)
@@ -756,12 +773,18 @@ struct DebugSettingsTab: View {
 
             Section("Status Report") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Send dev status to Bill")
+                    Text("Send dev status")
                         .font(.headline)
 
-                    Text("Phone: \(billPhone)")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+                    if testPhone2.isEmpty {
+                        Text("Configure Test Phone 2 above to enable")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    } else {
+                        Text("To: \(testPhone2)")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
 
                     Button(action: sendStatusReport) {
                         HStack {
@@ -770,12 +793,12 @@ struct DebugSettingsTab: View {
                                     .scaleEffect(0.7)
                                     .padding(.trailing, 4)
                             }
-                            Text(isSendingStatus ? "Sending..." : "Send Status Report to Bill")
+                            Text(isSendingStatus ? "Sending..." : "Send Status Report")
                         }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
-                    .disabled(isSendingStatus)
+                    .disabled(isSendingStatus || testPhone2.isEmpty)
 
                     if showStatusStatus {
                         Text(statusStatusMessage)
@@ -801,7 +824,7 @@ struct DebugSettingsTab: View {
 
         Task {
             do {
-                try await TwilioService.shared.sendSMS(to: jenniferPhone, body: randomEmojis)
+                try await TwilioService.shared.sendSMS(to: testPhone1, body: randomEmojis)
                 await MainActor.run {
                     emojiStatusMessage = "Sent: \(randomEmojis)"
                     showEmojiStatus = true
@@ -844,7 +867,7 @@ struct DebugSettingsTab: View {
             """
 
             do {
-                try await TwilioService.shared.sendSMS(to: billPhone, body: report)
+                try await TwilioService.shared.sendSMS(to: testPhone2, body: report)
                 await MainActor.run {
                     statusStatusMessage = "Sent status report!"
                     showStatusStatus = true
