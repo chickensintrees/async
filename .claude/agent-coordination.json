@@ -2,14 +2,10 @@
   "agents": [
     {
       "id": "Jennifers-MBP-1769536047-78979",
-      "task": "Building agent coordination system",
-      "files": [
-        "scripts/agent-coord.sh",
-        "scripts/thunderdome.sh",
-        "CLAUDE.md"
-      ],
+      "task": "Coordination system complete",
+      "files": [],
       "started": "2026-01-27T21:02:58Z",
-      "heartbeat": "2026-01-27T21:02:58Z"
+      "heartbeat": "2026-01-27T21:11:19Z"
     }
   ]
 }

@@ -498,18 +498,22 @@ class AppState: ObservableObject {
 
             // Upload attachments if any
             var uploadedAttachments: [MessageAttachment] = []
+            print("📎 [UPLOAD] Starting upload of \(attachments.count) attachments")
             for pending in attachments {
                 do {
+                    print("📎 [UPLOAD] Uploading: \(pending.filename) (\(pending.originalData.count) bytes)")
                     let uploaded = try await ImageService.shared.upload(
                         attachment: pending,
                         conversationId: conversation.id
                     )
+                    print("📎 [UPLOAD] Success! URL: \(uploaded.url)")
                     uploadedAttachments.append(uploaded)
                 } catch {
-                    print("Failed to upload attachment: \(error.localizedDescription)")
+                    print("📎 [UPLOAD] FAILED: \(error.localizedDescription)")
                     // Continue with other attachments
                 }
             }
+            print("📎 [UPLOAD] Finished with \(uploadedAttachments.count) uploaded")
 
             // Check if this is an agent-only chat (no human recipients)
             let hasHumanRecipients = conversationDetails.participants.contains { $0.isHuman }
@@ -571,10 +575,19 @@ class AppState: ObservableObject {
                 attachments: uploadedAttachments.isEmpty ? nil : uploadedAttachments
             )
 
+            print("📎 [DB] Inserting message with \(message.attachments?.count ?? 0) attachments")
+            if let atts = message.attachments {
+                for att in atts {
+                    print("📎 [DB] Attachment: \(att.url)")
+                }
+            }
+
             try await supabase
                 .from("messages")
                 .insert(message)
                 .execute()
+
+            print("📎 [DB] Message inserted successfully")
 
             // Update optimistic message with processed content and attachments
             // Only if still viewing the same conversation (prevents race condition)
