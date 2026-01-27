@@ -393,25 +393,62 @@ for m in reversed(data):
 print('\n'.join(lines))
 " 2>/dev/null)
 
-    # Call Claude API
-    local response=$(curl -s "https://api.anthropic.com/v1/messages" \
-        -H "x-api-key: $ANTHROPIC_API_KEY" \
-        -H "anthropic-version: 2023-06-01" \
-        -H "content-type: application/json" \
-        -d "$(python3 -c "
+    # Call Claude API using temp files to avoid shell escaping issues
+    local tmp_system=$(mktemp)
+    local tmp_context=$(mktemp)
+    local tmp_sender=$(mktemp)
+    printf '%s' "$system_prompt" > "$tmp_system"
+    printf '%s' "$context" > "$tmp_context"
+    printf '%s' "$sender_name" > "$tmp_sender"
+
+    local response=$(ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+        TMP_SYSTEM="$tmp_system" \
+        TMP_CONTEXT="$tmp_context" \
+        TMP_SENDER="$tmp_sender" \
+        python3 << 'PYTHON_SCRIPT'
 import json
-system = '''$system_prompt'''
-context = '''$context'''
-print(json.dumps({
+import os
+
+# Read from temp files
+with open(os.environ['TMP_SYSTEM']) as f:
+    system = f.read()
+with open(os.environ['TMP_CONTEXT']) as f:
+    context = f.read()
+with open(os.environ['TMP_SENDER']) as f:
+    sender = f.read()
+
+payload = json.dumps({
     'model': 'claude-sonnet-4-20250514',
     'max_tokens': 1024,
     'system': system,
     'messages': [{
         'role': 'user',
-        'content': f'Recent conversation:\n{context}\n\nRespond to the latest message from $sender_name.'
+        'content': f'Recent conversation:\n{context}\n\nRespond to the latest message from {sender}.'
     }]
-}))
-")")
+})
+
+api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+
+import urllib.request
+req = urllib.request.Request(
+    'https://api.anthropic.com/v1/messages',
+    data=payload.encode('utf-8'),
+    headers={
+        'x-api-key': api_key,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+    }
+)
+try:
+    with urllib.request.urlopen(req) as resp:
+        print(resp.read().decode('utf-8'))
+except urllib.error.HTTPError as e:
+    print(e.read().decode('utf-8'))
+PYTHON_SCRIPT
+)
+
+    # Clean up temp files
+    rm -f "$tmp_system" "$tmp_context" "$tmp_sender"
 
     # Extract response text
     local text=$(echo "$response" | python3 -c "
