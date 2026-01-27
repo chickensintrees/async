@@ -274,6 +274,48 @@ class AppState: ObservableObject {
                 canonicalKey = "dm:\(sortedIds[0]):\(sortedIds[1]):\(mode.rawValue)"
             }
 
+            // Check database for existing conversation with same canonical key
+            // This handles cases where local state is stale but DB has the conversation
+            if let canonicalKey = canonicalKey {
+                let existing: [Conversation] = try await supabase
+                    .from("conversations")
+                    .select()
+                    .eq("canonical_key", value: canonicalKey)
+                    .limit(1)
+                    .execute()
+                    .value
+
+                if let existingConvo = existing.first {
+                    print("📋 [CREATE] Found existing conversation with canonical_key: \(canonicalKey)")
+                    // Ensure current user is a participant (they might not be if this is a reused key)
+                    let parts: [ConversationParticipant] = try await supabase
+                        .from("conversation_participants")
+                        .select()
+                        .eq("conversation_id", value: existingConvo.id.uuidString)
+                        .eq("user_id", value: user.id.uuidString)
+                        .execute()
+                        .value
+
+                    if parts.isEmpty {
+                        // Add current user as participant
+                        let participant = ConversationParticipant(
+                            conversationId: existingConvo.id,
+                            userId: user.id,
+                            joinedAt: Date(),
+                            role: "member"
+                        )
+                        try await supabase
+                            .from("conversation_participants")
+                            .insert(participant)
+                            .execute()
+                    }
+
+                    // Reload and return the existing conversation
+                    await loadConversations()
+                    return conversations.first { $0.conversation.id == existingConvo.id }
+                }
+            }
+
             // Create conversation with proper kind and canonical key
             let conversation = Conversation(
                 id: UUID(),
