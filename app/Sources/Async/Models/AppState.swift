@@ -682,7 +682,8 @@ class AppState: ObservableObject {
                     senderName: user.displayName,
                     conversation: conversation,
                     conversationDetails: conversationDetails,
-                    allAgents: allAgents
+                    allAgents: allAgents,
+                    attachments: uploadedAttachments.isEmpty ? nil : uploadedAttachments
                 )
             }
         } catch {
@@ -699,6 +700,7 @@ class AppState: ObservableObject {
         conversation: Conversation,
         conversationDetails: ConversationWithDetails,
         allAgents: [User],
+        attachments: [MessageAttachment]? = nil,
         depth: Int = 0
     ) async {
         // Prevent infinite loops - max 2 levels of agent-to-agent
@@ -715,7 +717,8 @@ class AppState: ObservableObject {
                 conversationHistory: messages,
                 senderName: senderName,
                 participants: conversationDetails.participants,
-                conversationId: conversation.id
+                conversationId: conversation.id,
+                attachments: attachments
             )
 
             let messageId = UUID()

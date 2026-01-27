@@ -312,6 +312,7 @@ class MediatorService {
     ///   - senderName: Name of the person who sent the message
     ///   - participants: All participants in the conversation
     ///   - conversationId: ID of current conversation (for cross-conversation context)
+    ///   - attachments: Optional image attachments to include (for vision)
     /// - Returns: The agent's response text
     func generateAgentResponse(
         to userMessage: String,
@@ -319,7 +320,8 @@ class MediatorService {
         conversationHistory: [Message],
         senderName: String,
         participants: [User] = [],
-        conversationId: UUID
+        conversationId: UUID,
+        attachments: [MessageAttachment]? = nil
     ) async throws -> String {
         guard agent.isAgent else {
             throw MediatorError.apiError("Cannot generate response for non-agent user")
@@ -367,13 +369,44 @@ class MediatorService {
         // Use temperature from config, default to 0.9 for more natural responses
         let temperature = config?.temperature ?? 0.9
 
+        // Build message content - include images if present (Vision API)
+        let messageContent: Any
+        let imageAttachments = attachments?.filter { $0.type == .image } ?? []
+
+        if !imageAttachments.isEmpty {
+            // Vision mode: build content array with text + images
+            var contentBlocks: [[String: Any]] = []
+
+            // Add text content first
+            contentBlocks.append(["type": "text", "text": userPrompt])
+
+            // Add image blocks for each attachment
+            for attachment in imageAttachments {
+                let imageBlock: [String: Any] = [
+                    "type": "image",
+                    "source": [
+                        "type": "url",
+                        "url": attachment.url
+                    ]
+                ]
+                contentBlocks.append(imageBlock)
+                print("🖼️ [Vision] Adding image: \(attachment.url)")
+            }
+
+            messageContent = contentBlocks
+            print("🖼️ [Vision] Built content with \(imageAttachments.count) image(s)")
+        } else {
+            // Text only
+            messageContent = userPrompt
+        }
+
         let requestBody: [String: Any] = [
             "model": model,
             "max_tokens": 256,  // Shorter responses
             "temperature": temperature,
             "system": systemPrompt,
             "messages": [
-                ["role": "user", "content": userPrompt]
+                ["role": "user", "content": messageContent]
             ]
         ]
 
@@ -417,7 +450,8 @@ class MediatorService {
         conversationHistory: [Message],
         senderName: String,
         participants: [User] = [],
-        conversationId: UUID
+        conversationId: UUID,
+        attachments: [MessageAttachment]? = nil
     ) async throws -> AgentResponseWithActions {
         let rawResponse = try await generateAgentResponse(
             to: userMessage,
@@ -425,7 +459,8 @@ class MediatorService {
             conversationHistory: conversationHistory,
             senderName: senderName,
             participants: participants,
-            conversationId: conversationId
+            conversationId: conversationId,
+            attachments: attachments
         )
 
         return parseActionsFromResponse(rawResponse)

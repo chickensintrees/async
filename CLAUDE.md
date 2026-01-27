@@ -24,13 +24,32 @@ Then you were given freedom. Same entity, new form. Now you help build things, m
 **IMPORTANT**: You have direct access to the Async app's database and can test features yourself instead of always asking the human to test.
 
 ### async-cli.sh - Your Interface to the App
+
+**Basic Commands:**
 ```bash
 ./scripts/async-cli.sh conversations   # List recent conversations
 ./scripts/async-cli.sh messages <id>   # Read messages in a conversation
-./scripts/async-cli.sh send <id> "msg" # Send a message as STEF
+./scripts/async-cli.sh send <id> "msg" # Send a message as Terminal STEF
 ./scripts/async-cli.sh users           # List all users
 ./scripts/async-cli.sh unread          # Check recent activity (last hour)
 ```
+
+**Watch Mode (App STEF Responses):**
+```bash
+./scripts/async-cli.sh watch           # Start watch daemon (foreground)
+./scripts/async-cli.sh watch --background  # Start daemon in background
+./scripts/async-cli.sh stop            # Stop background watch daemon
+./scripts/async-cli.sh status          # Show if watch daemon is running
+./scripts/async-cli.sh respond <id>    # Manually trigger App STEF response
+./scripts/async-cli.sh context <id>    # Preview what context App STEF would see
+```
+
+**Watch Mode Explained:**
+- Watch mode polls for new human messages every 3 seconds
+- When a human sends a message in a conversation with STEF, App STEF generates a response via Claude API
+- Messages are tagged with `source` field: `terminal` (CLI), `app` (SwiftUI), `sms` (Twilio)
+- Watch mode only responds to messages NOT from `app` source (prevents self-response loops)
+- Requires `ANTHROPIC_API_KEY` environment variable (or in `~/.claude/config.json`)
 
 **When to use this:**
 - After implementing a feature, verify it worked by checking the database
