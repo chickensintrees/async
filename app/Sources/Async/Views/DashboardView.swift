@@ -30,8 +30,14 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DesignTokens.bgPrimary)
         .task {
-            // Process commits for scoring
+            // Process commits for scoring on initial load
             await gameVM.processNewCommits(viewModel.commits, using: GitHubService.shared)
+        }
+        .onChange(of: viewModel.commits) { _, newCommits in
+            // Reprocess commits when refresh happens
+            Task {
+                await gameVM.processNewCommits(newCommits, using: GitHubService.shared)
+            }
         }
     }
 }

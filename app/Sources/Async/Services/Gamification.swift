@@ -384,20 +384,46 @@ class GamificationViewModel: ObservableObject {
         let lastProcessed = gameState.lastProcessedCommit
         let processedShas = Set(gameState.events.compactMap { $0.relatedUrl?.components(separatedBy: "/").last })
 
+        print("[GAMIFICATION] processNewCommits called with \(commits.count) commits")
+        print("[GAMIFICATION] lastProcessedCommit: \(lastProcessed ?? "nil")")
+        print("[GAMIFICATION] Already processed SHAs: \(processedShas.count)")
+
+        if let first = commits.first {
+            print("[GAMIFICATION] Newest commit from API: \(first.shortSha) - \(first.commit.message.prefix(40))")
+        }
+
+        var processedCount = 0
+        var skippedCount = 0
+        var errorCount = 0
+
         for commit in commits {
-            if let last = lastProcessed, commit.sha == last { break }
+            if let last = lastProcessed, commit.sha == last {
+                print("[GAMIFICATION] Hit lastProcessedCommit at \(commit.shortSha), stopping")
+                break
+            }
 
             // Skip if already processed (prevents duplicates)
-            if processedShas.contains(commit.sha) { continue }
+            if processedShas.contains(commit.sha) {
+                print("[GAMIFICATION] Skipping \(commit.shortSha) - already in events")
+                skippedCount += 1
+                continue
+            }
 
             do {
+                print("[GAMIFICATION] Fetching diff for \(commit.shortSha)...")
                 let diff: CommitDiff = try await github.fetch("repos/chickensintrees/async/commits/\(commit.sha)")
+                print("[GAMIFICATION] Got diff with \(diff.files.count) files")
 
                 // processCommit returns nil for merge commits
-                guard let event = calculator.processCommit(commit, diff: diff) else { continue }
+                guard let event = calculator.processCommit(commit, diff: diff) else {
+                    print("[GAMIFICATION] Skipping \(commit.shortSha) - merge commit or nil event")
+                    continue
+                }
 
+                print("[GAMIFICATION] Scored \(commit.shortSha): \(event.points) points - \(event.description)")
                 applyScoreEvent(event)
                 gameState.events.insert(event, at: 0)
+                processedCount += 1
 
                 if abs(event.points) >= 50 {
                     await generateCommentary(
@@ -406,11 +432,15 @@ class GamificationViewModel: ObservableObject {
                     )
                 }
             } catch {
-                // Skip commits we can't fetch diff for
+                print("[GAMIFICATION] ERROR fetching diff for \(commit.shortSha): \(error)")
+                errorCount += 1
             }
         }
 
+        print("[GAMIFICATION] Summary: processed=\(processedCount), skipped=\(skippedCount), errors=\(errorCount)")
+
         if let newest = commits.first {
+            print("[GAMIFICATION] Setting lastProcessedCommit to \(newest.shortSha)")
             gameState.lastProcessedCommit = newest.sha
         }
 
@@ -419,6 +449,7 @@ class GamificationViewModel: ObservableObject {
         }
 
         persistence.save(gameState)
+        print("[GAMIFICATION] State saved")
     }
 
     private func applyScoreEvent(_ event: ScoreEvent) {

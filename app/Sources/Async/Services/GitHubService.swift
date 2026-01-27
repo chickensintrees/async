@@ -3,7 +3,7 @@ import AppKit
 
 // MARK: - GitHub Data Models
 
-struct Commit: Codable, Identifiable {
+struct Commit: Codable, Identifiable, Equatable {
     let sha: String
     let commit: CommitDetail
     let author: GitHubUser?
@@ -15,18 +15,18 @@ struct Commit: Codable, Identifiable {
     var authorLogin: String { author?.login ?? commit.author.name }
     var date: Date { commit.author.date }
 
-    struct CommitDetail: Codable {
+    struct CommitDetail: Codable, Equatable {
         let message: String
         let author: CommitAuthor
     }
 
-    struct CommitAuthor: Codable {
+    struct CommitAuthor: Codable, Equatable {
         let name: String
         let date: Date
     }
 }
 
-struct GitHubUser: Codable {
+struct GitHubUser: Codable, Equatable {
     let login: String
     let avatar_url: String?
 }
