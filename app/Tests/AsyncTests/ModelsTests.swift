@@ -227,7 +227,8 @@ final class MessageTests: XCTestCase {
     private func makeMessage(
         raw: String,
         processed: String?,
-        rawVisibleTo: [UUID]? = nil
+        rawVisibleTo: [UUID]? = nil,
+        attachments: [MessageAttachment]? = nil
     ) -> Message {
         Message(
             id: UUID(),
@@ -239,7 +240,8 @@ final class MessageTests: XCTestCase {
             agentContext: nil,
             createdAt: Date(),
             processedAt: processed != nil ? Date() : nil,
-            rawVisibleTo: rawVisibleTo
+            rawVisibleTo: rawVisibleTo,
+            attachments: attachments
         )
     }
 }

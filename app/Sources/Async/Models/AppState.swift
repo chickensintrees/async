@@ -446,14 +446,14 @@ class AppState: ObservableObject {
         }
     }
 
-    func sendMessage(content: String, to conversationDetails: ConversationWithDetails) async {
+    func sendMessage(content: String, attachments: [PendingAttachment] = [], to conversationDetails: ConversationWithDetails) async {
         let conversation = conversationDetails.conversation
         guard let user = currentUser else { return }
 
         // Create message ID upfront for optimistic UI
         let messageId = UUID()
 
-        // Optimistic UI: Show user's message immediately
+        // Optimistic UI: Show user's message immediately (without attachments - they'll be added after upload)
         let optimisticMessage = Message(
             id: messageId,
             conversationId: conversation.id,
@@ -464,7 +464,8 @@ class AppState: ObservableObject {
             agentContext: nil,
             createdAt: Date(),
             processedAt: nil,
-            rawVisibleTo: nil
+            rawVisibleTo: nil,
+            attachments: nil
         )
         messages.append(optimisticMessage)
 
@@ -474,6 +475,21 @@ class AppState: ObservableObject {
         do {
             var processedContent: String? = nil
             var agentContextJson: String? = nil
+
+            // Upload attachments if any
+            var uploadedAttachments: [MessageAttachment] = []
+            for pending in attachments {
+                do {
+                    let uploaded = try await ImageService.shared.upload(
+                        attachment: pending,
+                        conversationId: conversation.id
+                    )
+                    uploadedAttachments.append(uploaded)
+                } catch {
+                    print("Failed to upload attachment: \(error.localizedDescription)")
+                    // Continue with other attachments
+                }
+            }
 
             // Check if this is an agent-only chat (no human recipients)
             let hasHumanRecipients = conversationDetails.participants.contains { $0.isHuman }
@@ -531,7 +547,8 @@ class AppState: ObservableObject {
                 agentContext: agentContextJson,
                 createdAt: Date(),
                 processedAt: processedContent != nil ? Date() : nil,
-                rawVisibleTo: nil
+                rawVisibleTo: nil,
+                attachments: uploadedAttachments.isEmpty ? nil : uploadedAttachments
             )
 
             try await supabase
@@ -539,8 +556,8 @@ class AppState: ObservableObject {
                 .insert(message)
                 .execute()
 
-            // Update optimistic message with processed content (if any)
-            if processedContent != nil {
+            // Update optimistic message with processed content and attachments
+            if processedContent != nil || !uploadedAttachments.isEmpty {
                 if let index = messages.firstIndex(where: { $0.id == messageId }) {
                     messages[index] = message
                 }
@@ -632,7 +649,8 @@ class AppState: ObservableObject {
                 agentContext: nil,
                 createdAt: Date(),
                 processedAt: nil,
-                rawVisibleTo: nil
+                rawVisibleTo: nil,
+                attachments: nil
             )
 
             // Insert the agent's response
