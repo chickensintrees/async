@@ -268,6 +268,159 @@ class GitHubService {
             )
         }
     }
+
+    // MARK: - Issue Operations (App STEF Write Access)
+
+    /// Create a new issue
+    /// Returns the issue number of the created issue
+    func createIssue(title: String, body: String, labels: [String] = []) async throws -> Int {
+        let process = Process()
+        let pipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ghPath)
+
+        var args = ["api", "repos/\(repo)/issues", "-X", "POST",
+                    "-f", "title=\(title)",
+                    "-f", "body=\(body)"]
+
+        if !labels.isEmpty {
+            // Labels need to be passed as JSON array
+            let labelsJson = labels.map { "\"\($0)\"" }.joined(separator: ",")
+            args.append(contentsOf: ["--raw-field", "labels=[\(labelsJson)]"])
+        }
+
+        process.arguments = args
+        process.standardOutput = pipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
+                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        }
+
+        // Parse response to get issue number
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        struct CreatedIssue: Decodable {
+            let number: Int
+        }
+
+        let created = try decoder.decode(CreatedIssue.self, from: data)
+        return created.number
+    }
+
+    /// Add a comment to an issue
+    func addComment(issueNumber: Int, body: String) async throws {
+        try await execute(
+            "repos/\(repo)/issues/\(issueNumber)/comments",
+            method: "POST",
+            body: ["body": body]
+        )
+    }
+
+    // MARK: - File Operations (Contents API)
+
+    /// Get file contents and SHA (needed for updates)
+    private func getFileInfo(path: String, branch: String = "main") async throws -> (content: String, sha: String)? {
+        let process = Process()
+        let pipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ghPath)
+        process.arguments = ["api", "repos/\(repo)/contents/\(path)?ref=\(branch)"]
+        process.standardOutput = pipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        // 404 means file doesn't exist - that's OK for new files
+        if process.terminationStatus != 0 {
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        struct FileContent: Decodable {
+            let content: String
+            let sha: String
+        }
+
+        let decoder = JSONDecoder()
+        let fileContent = try decoder.decode(FileContent.self, from: data)
+
+        // Content is base64 encoded with newlines
+        let cleanedBase64 = fileContent.content.replacingOccurrences(of: "\n", with: "")
+        guard let decoded = Data(base64Encoded: cleanedBase64),
+              let content = String(data: decoded, encoding: .utf8) else {
+            throw NSError(domain: "GitHubService", code: -1,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to decode file content"])
+        }
+
+        return (content, fileContent.sha)
+    }
+
+    /// Update or create a file in the repository
+    /// - Parameters:
+    ///   - path: File path relative to repo root (e.g., "openspec/specs/my-spec.md")
+    ///   - content: New file content
+    ///   - message: Commit message
+    ///   - branch: Target branch (default: main)
+    func updateFileContents(path: String, content: String, message: String, branch: String = "main") async throws {
+        let process = Process()
+        let pipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ghPath)
+
+        // Base64 encode the content
+        guard let contentData = content.data(using: .utf8) else {
+            throw NSError(domain: "GitHubService", code: -1,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to encode content"])
+        }
+        let base64Content = contentData.base64EncodedString()
+
+        var args = ["api", "repos/\(repo)/contents/\(path)", "-X", "PUT",
+                    "-f", "message=\(message)",
+                    "-f", "content=\(base64Content)",
+                    "-f", "branch=\(branch)"]
+
+        // If file exists, we need the SHA
+        if let fileInfo = try await getFileInfo(path: path, branch: branch) {
+            args.append(contentsOf: ["-f", "sha=\(fileInfo.sha)"])
+        }
+
+        process.arguments = args
+        process.standardOutput = pipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
+                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        }
+    }
+
+    /// Read a file from the repository
+    func readFileContents(path: String, branch: String = "main") async throws -> String {
+        guard let fileInfo = try await getFileInfo(path: path, branch: branch) else {
+            throw NSError(domain: "GitHubService", code: 404,
+                         userInfo: [NSLocalizedDescriptionKey: "File not found: \(path)"])
+        }
+        return fileInfo.content
+    }
 }
 
 // MARK: - Dashboard View Model
