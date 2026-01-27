@@ -419,6 +419,7 @@ class MediatorService {
 
     /// Load relevant memories for an agent based on participants
     func loadRelevantMemories(for agentId: UUID, participants: [UUID], limit: Int = 10) async -> [AgentMemory] {
+        debugLog("loadRelevantMemories called for agent \(agentId)")
         do {
             // Query memories where this agent is a participant
             let memories: [AgentMemory] = try await supabase
@@ -430,10 +431,13 @@ class MediatorService {
                 .execute()
                 .value
 
-            print("🧠 [Memory] Loaded \(memories.count) memories for agent \(agentId)")
+            debugLog("Loaded \(memories.count) memories for agent \(agentId)")
+            if !memories.isEmpty {
+                debugLog("Memory titles: \(memories.map { $0.title }.joined(separator: ", "))")
+            }
             return memories
         } catch {
-            print("🧠 [Memory] Failed to load memories: \(error.localizedDescription)")
+            debugLog("❌ FAILED to load memories: \(error)")
             return []
         }
     }
