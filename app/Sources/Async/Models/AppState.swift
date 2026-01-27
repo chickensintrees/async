@@ -70,6 +70,9 @@ class AppState: ObservableObject {
     @Published var tags: [Tag] = []
     @Published var selectedConnection: ConnectionWithUser?
 
+    /// Pending GitHub actions from agent responses, keyed by message ID
+    @Published var pendingActions: [UUID: [GitHubAction]] = [:]
+
     private let supabase: SupabaseClient
 
     init() {
@@ -663,8 +666,8 @@ class AppState: ObservableObject {
         }
 
         do {
-            // Generate response from the agent
-            let responseText = try await MediatorService.shared.generateAgentResponse(
+            // Generate response from the agent (with potential GitHub actions)
+            let response = try await MediatorService.shared.generateAgentResponseWithActions(
                 to: userMessage,
                 from: agent,
                 conversationHistory: messages,
@@ -673,12 +676,22 @@ class AppState: ObservableObject {
                 conversationId: conversation.id
             )
 
+            let messageId = UUID()
+
+            // Store any proposed actions for the UI to display
+            if !response.actions.isEmpty {
+                await MainActor.run {
+                    pendingActions[messageId] = response.actions
+                }
+                print("📋 [AppState] Stored \(response.actions.count) pending action(s) for message \(messageId)")
+            }
+
             // Create the agent's message
             let agentMessage = Message(
-                id: UUID(),
+                id: messageId,
                 conversationId: conversation.id,
                 senderId: agent.id,
-                contentRaw: responseText,
+                contentRaw: response.text,
                 contentProcessed: nil,
                 isFromAgent: true,
                 agentContext: nil,
@@ -700,13 +713,13 @@ class AppState: ObservableObject {
             // Check if this agent @mentioned other agents - trigger their responses
             let otherAgents = allAgents.filter { $0.id != agent.id }
             for otherAgent in otherAgents {
-                if MediatorService.shared.isAgentMentioned(otherAgent, in: responseText) {
+                if MediatorService.shared.isAgentMentioned(otherAgent, in: response.text) {
                     // Small delay to make conversation feel more natural
                     try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
 
                     await generateAndSendAgentResponse(
                         agent: otherAgent,
-                        userMessage: responseText,
+                        userMessage: response.text,
                         senderName: agent.displayName,
                         conversation: conversation,
                         conversationDetails: conversationDetails,
@@ -719,6 +732,60 @@ class AppState: ObservableObject {
         } catch {
             print("Agent response generation failed: \(error.localizedDescription)")
             // Don't show error to user - agent response is optional
+        }
+    }
+
+    // MARK: - GitHub Actions
+
+    /// Execute a GitHub action and remove it from pending
+    func executeGitHubAction(_ action: GitHubAction, forMessageId messageId: UUID) async {
+        do {
+            switch action {
+            case .createIssue(let title, let body, let labels):
+                let issueNumber = try await GitHubService.shared.createIssue(
+                    title: title,
+                    body: body,
+                    labels: labels
+                )
+                print("✅ Created issue #\(issueNumber): \(title)")
+
+                // Optionally notify in chat (send a follow-up message)
+                // For now just log success
+
+            case .addComment(let issueNumber, let body):
+                try await GitHubService.shared.addComment(issueNumber: issueNumber, body: body)
+                print("✅ Added comment to issue #\(issueNumber)")
+            }
+
+            // Remove the executed action from pending
+            await MainActor.run {
+                if var actions = pendingActions[messageId] {
+                    actions.removeAll { $0 == action }
+                    if actions.isEmpty {
+                        pendingActions.removeValue(forKey: messageId)
+                    } else {
+                        pendingActions[messageId] = actions
+                    }
+                }
+            }
+
+        } catch {
+            print("❌ Failed to execute GitHub action: \(error.localizedDescription)")
+            await MainActor.run {
+                errorMessage = "GitHub action failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Dismiss a pending action without executing it
+    func dismissGitHubAction(_ action: GitHubAction, forMessageId messageId: UUID) {
+        if var actions = pendingActions[messageId] {
+            actions.removeAll { $0 == action }
+            if actions.isEmpty {
+                pendingActions.removeValue(forKey: messageId)
+            } else {
+                pendingActions[messageId] = actions
+            }
         }
     }
 

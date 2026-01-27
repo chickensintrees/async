@@ -172,7 +172,16 @@ struct ConversationView: View {
                                 isFromCurrentUser: message.senderId == appState.currentUser?.id,
                                 conversationMode: conversation.mode,
                                 senderName: conversationDetails.participants.first { $0.id == message.senderId }?.displayName,
-                                isAgentOnlyChat: conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == appState.currentUser?.id }
+                                isAgentOnlyChat: conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == appState.currentUser?.id },
+                                pendingActions: appState.pendingActions[message.id] ?? [],
+                                onActionExecute: { action in
+                                    Task {
+                                        await appState.executeGitHubAction(action, forMessageId: message.id)
+                                    }
+                                },
+                                onActionDismiss: { action in
+                                    appState.dismissGitHubAction(action, forMessageId: message.id)
+                                }
                             )
                             .id(message.id)
                         }
@@ -507,6 +516,9 @@ struct MessageBubble: View {
     let conversationMode: ConversationMode
     let senderName: String?  // Name of sender (for agent messages)
     let isAgentOnlyChat: Bool  // True if no human recipients (agent messages don't get "processed")
+    let pendingActions: [GitHubAction]  // Actions STEF proposed in this message
+    let onActionExecute: (GitHubAction) -> Void
+    let onActionDismiss: (GitHubAction) -> Void
 
     /// What content to display based on mode and sender
     var displayContent: String {
@@ -652,6 +664,36 @@ struct MessageBubble: View {
                     .foregroundColor(.secondary)
                 }
 
+                // GitHub action buttons (from STEF)
+                if !pendingActions.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(pendingActions.enumerated()), id: \.offset) { _, action in
+                            HStack(spacing: 8) {
+                                Image(systemName: actionIcon(for: action))
+                                    .foregroundColor(.orange)
+                                Text(action.displayName)
+                                    .font(.caption)
+                                Spacer()
+                                Button("Do it") {
+                                    onActionExecute(action)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.green)
+                                .controlSize(.small)
+                                Button("Dismiss") {
+                                    onActionDismiss(action)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            .padding(8)
+                            .background(Color.orange.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+
                 // Timestamp
                 Text(message.createdAt, style: .time)
                     .font(.caption2)
@@ -675,5 +717,14 @@ struct MessageBubble: View {
             return .primary
         }
         return isFromCurrentUser ? .white : .primary
+    }
+
+    private func actionIcon(for action: GitHubAction) -> String {
+        switch action {
+        case .createIssue:
+            return "plus.circle"
+        case .addComment:
+            return "text.bubble"
+        }
     }
 }

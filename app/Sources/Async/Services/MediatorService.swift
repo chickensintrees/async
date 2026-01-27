@@ -1,6 +1,29 @@
 import Foundation
 import Supabase
 
+// MARK: - GitHub Action Types
+
+/// Actions that STEF can propose to take on GitHub
+enum GitHubAction: Equatable {
+    case createIssue(title: String, body: String, labels: [String])
+    case addComment(issueNumber: Int, body: String)
+
+    var displayName: String {
+        switch self {
+        case .createIssue(let title, _, _):
+            return "Create Issue: \(title)"
+        case .addComment(let number, _):
+            return "Comment on #\(number)"
+        }
+    }
+}
+
+/// Response from agent that may include proposed actions
+struct AgentResponseWithActions {
+    let text: String           // The response text (with action blocks stripped)
+    let actions: [GitHubAction] // Proposed actions to execute
+}
+
 /// AI Mediator Service using Claude Sonnet for message processing
 class MediatorService {
     static let shared = MediatorService()
@@ -385,6 +408,101 @@ class MediatorService {
         }
 
         return text
+    }
+
+    /// Generate agent response and parse any proposed GitHub actions
+    func generateAgentResponseWithActions(
+        to userMessage: String,
+        from agent: User,
+        conversationHistory: [Message],
+        senderName: String,
+        participants: [User] = [],
+        conversationId: UUID
+    ) async throws -> AgentResponseWithActions {
+        let rawResponse = try await generateAgentResponse(
+            to: userMessage,
+            from: agent,
+            conversationHistory: conversationHistory,
+            senderName: senderName,
+            participants: participants,
+            conversationId: conversationId
+        )
+
+        return parseActionsFromResponse(rawResponse)
+    }
+
+    /// Parse action blocks from agent response
+    /// Format: [ACTION:type]\nkey: value\n[/ACTION]
+    private func parseActionsFromResponse(_ response: String) -> AgentResponseWithActions {
+        var actions: [GitHubAction] = []
+        var cleanedResponse = response
+
+        // Regex to match action blocks
+        let pattern = #"\[ACTION:(\w+)\]([\s\S]*?)\[/ACTION\]"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return AgentResponseWithActions(text: response, actions: [])
+        }
+
+        let range = NSRange(response.startIndex..., in: response)
+        let matches = regex.matches(in: response, options: [], range: range)
+
+        for match in matches.reversed() {
+            guard let actionTypeRange = Range(match.range(at: 1), in: response),
+                  let contentRange = Range(match.range(at: 2), in: response),
+                  let fullRange = Range(match.range, in: response) else {
+                continue
+            }
+
+            let actionType = String(response[actionTypeRange])
+            let content = String(response[contentRange])
+
+            if let action = parseAction(type: actionType, content: content) {
+                actions.append(action)
+            }
+
+            // Remove action block from response
+            cleanedResponse = cleanedResponse.replacingCharacters(in: fullRange, with: "")
+        }
+
+        // Clean up extra whitespace
+        cleanedResponse = cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return AgentResponseWithActions(text: cleanedResponse, actions: actions.reversed())
+    }
+
+    /// Parse a single action from its type and content
+    private func parseAction(type: String, content: String) -> GitHubAction? {
+        let lines = content.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+        var fields: [String: String] = [:]
+
+        for line in lines {
+            if let colonIndex = line.firstIndex(of: ":") {
+                let key = String(line[..<colonIndex]).trimmingCharacters(in: .whitespaces).lowercased()
+                let value = String(line[line.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
+                fields[key] = value
+            }
+        }
+
+        switch type.lowercased() {
+        case "create_issue":
+            guard let title = fields["title"], !title.isEmpty,
+                  let body = fields["body"] else {
+                return nil
+            }
+            let labels = fields["labels"]?.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } ?? []
+            return .createIssue(title: title, body: body, labels: labels)
+
+        case "add_comment":
+            guard let issueStr = fields["issue"], let issueNumber = Int(issueStr),
+                  let body = fields["body"], !body.isEmpty else {
+                return nil
+            }
+            return .addComment(issueNumber: issueNumber, body: body)
+
+        default:
+            return nil
+        }
     }
 
     // MARK: - Agent Config Loading
@@ -913,6 +1031,35 @@ class MediatorService {
             prompt += "\n\n---"
             prompt += "\nBe discrete: Don't volunteer that you know things from other conversations"
             prompt += "\nunless it's genuinely helpful and contextually appropriate."
+        }
+
+        // Add GitHub capabilities for STEF
+        if agent.displayName.lowercased().contains("stef") {
+            prompt += """
+
+            GITHUB CAPABILITIES:
+            You can take actions on the chickensintrees/async GitHub repository. When you want to perform an action,
+            include it at the END of your response in this exact format:
+
+            [ACTION:create_issue]
+            title: Issue title here
+            body: Issue body/description here
+            labels: bug, enhancement (optional, comma-separated)
+            [/ACTION]
+
+            [ACTION:add_comment]
+            issue: 27
+            body: Your comment text here
+            [/ACTION]
+
+            IMPORTANT RULES:
+            - Only suggest actions when genuinely useful - don't force them
+            - Always explain what you're doing BEFORE the action block
+            - If the user asks you to create an issue or comment, do it
+            - The action will require user confirmation before executing
+            - Keep issue titles concise, bodies informative
+            - You can reference existing issues by number (e.g., "Related to #27")
+            """
         }
 
         return prompt
