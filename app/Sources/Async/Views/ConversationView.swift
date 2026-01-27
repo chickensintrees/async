@@ -248,9 +248,17 @@ struct MessageBubble: View {
     }
 
     /// Whether to show the AI-processed badge/content
+    /// Only show if processed content exists AND is meaningfully different from raw content
     var showProcessedContent: Bool {
-        guard let _ = message.contentProcessed else { return false }
-        return conversationMode == .assisted
+        guard let processed = message.contentProcessed,
+              conversationMode == .assisted else { return false }
+
+        // Don't show if it's just echoing the raw content
+        let raw = message.contentRaw
+        let normalizedProcessed = processed.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return normalizedProcessed != normalizedRaw
     }
 
     /// Whether this message was AI-processed
