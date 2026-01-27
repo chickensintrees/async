@@ -500,14 +500,16 @@ struct ConversationWithDetails: Identifiable, Equatable, Hashable {
         }
     }
 
-    // Hash and equality only by conversation ID so List selection stays stable
-    // when other properties change (lastMessage, unreadCount, participants)
+    // Hash only by conversation ID so List selection stays stable
     func hash(into hasher: inout Hasher) {
         hasher.combine(conversation.id)
     }
 
+    // Equatable compares more fields so SwiftUI sees updates to lastMessage/unreadCount
     static func == (lhs: ConversationWithDetails, rhs: ConversationWithDetails) -> Bool {
-        lhs.conversation.id == rhs.conversation.id
+        lhs.conversation.id == rhs.conversation.id &&
+        lhs.lastMessage?.id == rhs.lastMessage?.id &&
+        lhs.unreadCount == rhs.unreadCount
     }
 }
 
