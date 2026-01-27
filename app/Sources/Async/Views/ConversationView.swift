@@ -152,11 +152,9 @@ struct ConversationView: View {
                     .padding()
                 }
                 .onChange(of: appState.messages.count) { _, _ in
-                    // Scroll when message count changes
+                    // Scroll when message count changes - no animation to avoid fighting with layout
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
-                        }
+                        proxy.scrollTo(bottomAnchorId, anchor: .bottom)
                     }
                 }
                 .onChange(of: shouldScrollToBottom) { _, shouldScroll in
