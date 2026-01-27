@@ -1,11 +1,3 @@
 {
-  "agents": [
-    {
-      "id": "Jennifers-MBP-1769536047-78979",
-      "task": "Coordination system complete",
-      "files": [],
-      "started": "2026-01-27T21:02:58Z",
-      "heartbeat": "2026-01-27T21:11:19Z"
-    }
-  ]
+  "agents": []
 }
