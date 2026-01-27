@@ -311,8 +311,8 @@ section "ISSUE CLASSIFICATION"
 # - Referenced in recent commit (last 7 days) → in-progress
 # - Referenced in open PR → in-progress
 # - Has assignee → in-progress
-# - Has "in-progress" or "done" label already → respect it (manual override)
-# - Otherwise → backlog (remove in-progress/done labels if present)
+# - Has "done" or "pinned" label → respect it (manual override, no auto-move)
+# - Otherwise → backlog (remove in-progress label if present)
 
 CLASSIFY_CHANGES=0
 
@@ -338,8 +338,8 @@ classify_issue() {
     local reason=""
 
     # Check if manually labeled (respect user overrides)
-    if [[ "$current_labels" == *"done"* ]]; then
-        # Already marked done, leave it alone
+    if [[ "$current_labels" == *"done"* ]] || [[ "$current_labels" == *"pinned"* ]]; then
+        # Already marked done or pinned, leave it alone
         return
     fi
 
