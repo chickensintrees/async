@@ -68,6 +68,20 @@ class MediatorService {
         conversationHistory: [Message],
         agentContext: AgentContext?
     ) async throws -> ProcessedMessage {
+        // AI message processing is DISABLED until we figure out the actual use case.
+        // See: https://github.com/chickensintrees/async/issues/23
+        //
+        // Current problem: AI summaries were just echoing messages, wasting tokens.
+        // We need to design what AI mediation actually means for each mode before
+        // spending tokens on it.
+        //
+        // For now: messages pass through unprocessed.
+        return ProcessedMessage(content: rawContent, summary: nil, sentiment: nil)
+
+        // --- DISABLED CODE BELOW ---
+        // Uncomment when AI processing is redesigned
+
+        /*
         guard mode != .direct else {
             // Direct mode - no AI processing
             return ProcessedMessage(content: rawContent, summary: nil, sentiment: nil)
@@ -126,6 +140,7 @@ class MediatorService {
         }
 
         return parseResponse(text, mode: mode)
+        */
     }
 
     // MARK: - Prompt Building
