@@ -1,59 +1,118 @@
 import SwiftUI
 import AppKit
 
-// NSTextField wrapper for reliable input
-struct MessageTextField: NSViewRepresentable {
+// MARK: - Growing Text Input (multi-line, handles large paste)
+
+struct GrowingTextInput: NSViewRepresentable {
     var placeholder: String
     @Binding var text: String
     var onSubmit: () -> Void
 
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField()
-        textField.placeholderString = placeholder
-        textField.delegate = context.coordinator
-        textField.bezelStyle = .roundedBezel
-        textField.focusRingType = .exterior
-        return textField
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        let textView = NSTextView()
+
+        // Configure text view
+        textView.isRichText = false
+        textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        textView.textContainerInset = NSSize(width: 4, height: 6)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.delegate = context.coordinator
+        textView.drawsBackground = false
+
+        // Configure scroll view
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        context.coordinator.textView = textView
+
+        return scrollView
     }
 
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+
+        if textView.string != text {
+            textView.string = text
         }
+
+        // Update placeholder visibility
+        context.coordinator.updatePlaceholder()
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: MessageTextField
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: GrowingTextInput
+        weak var textView: NSTextView?
+        private var placeholderLabel: NSTextField?
 
-        init(_ parent: MessageTextField) {
+        init(_ parent: GrowingTextInput) {
             self.parent = parent
+            super.init()
         }
 
-        func controlTextDidChange(_ obj: Notification) {
-            if let textField = obj.object as? NSTextField {
-                parent.text = textField.stringValue
-            }
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+            updatePlaceholder()
         }
 
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // Return/Enter without shift = submit
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
-                return true
+                if !NSEvent.modifierFlags.contains(.shift) {
+                    parent.onSubmit()
+                    return true
+                }
             }
             return false
         }
+
+        func updatePlaceholder() {
+            guard let textView = textView else { return }
+
+            if placeholderLabel == nil {
+                let label = NSTextField(labelWithString: parent.placeholder)
+                label.textColor = .placeholderTextColor
+                label.font = textView.font
+                label.translatesAutoresizingMaskIntoConstraints = false
+                label.isEditable = false
+                label.isBordered = false
+                label.drawsBackground = false
+                textView.addSubview(label)
+
+                NSLayoutConstraint.activate([
+                    label.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 8),
+                    label.topAnchor.constraint(equalTo: textView.topAnchor, constant: 6)
+                ])
+
+                placeholderLabel = label
+            }
+
+            placeholderLabel?.isHidden = !textView.string.isEmpty
+        }
     }
 }
+
+// MARK: - Conversation View
 
 struct ConversationView: View {
     @EnvironmentObject var appState: AppState
     let conversationDetails: ConversationWithDetails
     @State private var newMessage = ""
     @State private var showDeleteConfirmation = false
+    @State private var scrollProxy: ScrollViewProxy?
 
     private var conversation: Conversation { conversationDetails.conversation }
 
@@ -64,7 +123,7 @@ struct ConversationView: View {
 
             Divider()
 
-            // Messages
+            // Messages with proper scroll anchoring
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -81,12 +140,12 @@ struct ConversationView: View {
                     }
                     .padding()
                 }
-                .onChange(of: appState.messages.count) { _, _ in
-                    if let lastMessage = appState.messages.last {
-                        withAnimation {
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                        }
-                    }
+                .onChange(of: appState.messages) { _, newMessages in
+                    // Scroll when messages change (new message, edit, or conversation switch)
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
+                .onAppear {
+                    scrollProxy = proxy
                 }
             }
 
@@ -95,13 +154,25 @@ struct ConversationView: View {
             // Input
             messageInput
         }
-        .task {
+        .task(id: conversationDetails.conversation.id) {
             await appState.loadMessages(for: conversationDetails)
-        }
-        .onChange(of: conversationDetails) { _, newDetails in
-            Task {
-                await appState.loadMessages(for: newDetails)
+            // Scroll to bottom after messages load
+            if let proxy = scrollProxy {
+                // Small delay to let SwiftUI render messages
+                try? await Task.sleep(for: .milliseconds(100))
+                scrollToBottom(proxy: proxy, animated: false)
             }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        guard let lastMessage = appState.messages.last else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(lastMessage.id, anchor: .bottom)
         }
     }
 
@@ -179,12 +250,11 @@ struct ConversationView: View {
     }
 
     var messageInput: some View {
-        HStack(spacing: 12) {
-            MessageTextField(placeholder: "Type a message...", text: $newMessage) {
+        HStack(alignment: .bottom, spacing: 12) {
+            GrowingTextInput(placeholder: "Type a message...", text: $newMessage) {
                 sendMessage()
             }
-            .frame(height: 28)
-            .padding(4)
+            .frame(minHeight: 28, maxHeight: 120)
             .background(Color(nsColor: .controlBackgroundColor))
             .cornerRadius(8)
 
@@ -294,6 +364,7 @@ struct MessageBubble: View {
                     .background(messageBubbleColor)
                     .foregroundColor(messageForegroundColor)
                     .cornerRadius(16)
+                    .textSelection(.enabled)
 
                 // AI processed summary (for assisted mode)
                 if showProcessedContent, let processed = message.contentProcessed {
