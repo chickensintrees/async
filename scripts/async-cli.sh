@@ -362,7 +362,7 @@ generate_response() {
     fi
 
     # Load STEF's system prompt from agent_configs (or use fallback)
-    local system_prompt=$(api "agent_configs?agent_id=eq.${STEF_USER_ID}&select=system_prompt" | python3 -c "
+    local system_prompt=$(api "agent_configs?user_id=eq.${STEF_USER_ID}&select=system_prompt" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 if data and data[0].get('system_prompt'):
