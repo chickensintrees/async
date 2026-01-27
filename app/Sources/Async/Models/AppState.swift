@@ -410,6 +410,13 @@ class AppState: ObservableObject {
                 .execute()
                 .value
 
+            // CRITICAL: Only update messages if this conversation is still selected
+            // Prevents race condition where switching conversations causes message crossover
+            guard selectedConversation?.conversation.id == conversationDetails.conversation.id else {
+                print("📨 Skipping message update - conversation \(conversationDetails.conversation.id) no longer selected")
+                return
+            }
+
             self.messages = msgs
             print("📨 Loaded \(msgs.count) messages for conversation \(conversationDetails.conversation.id)")
 
@@ -557,8 +564,10 @@ class AppState: ObservableObject {
                 .execute()
 
             // Update optimistic message with processed content and attachments
+            // Only if still viewing the same conversation (prevents race condition)
             if processedContent != nil || !uploadedAttachments.isEmpty {
-                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                if selectedConversation?.conversation.id == conversation.id,
+                   let index = messages.firstIndex(where: { $0.id == messageId }) {
                     messages[index] = message
                 }
             }
