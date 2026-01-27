@@ -204,6 +204,47 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+section "ACTIVE AGENTS"
+
+# Check for other active agents
+COORD_FILE="$HOME/Projects/async/.claude/agent-coordination.json"
+if [[ -f "$COORD_FILE" ]]; then
+    # Cleanup stale agents first (>15 min inactive)
+    NOW=$(date +%s)
+    TEMP=$(mktemp)
+    jq --argjson ttl 900 --argjson now "$NOW" '
+        .agents = [.agents[] | select(
+            (($now - (.heartbeat | sub("\\.[0-9]+"; "") | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime)) <= $ttl)
+        )]
+    ' "$COORD_FILE" > "$TEMP" 2>/dev/null && mv "$TEMP" "$COORD_FILE"
+
+    AGENT_COUNT=$(jq '.agents | length' "$COORD_FILE" 2>/dev/null || echo "0")
+
+    if [[ "$AGENT_COUNT" -eq 0 ]]; then
+        status_info "No agents currently registered"
+    elif [[ "$AGENT_COUNT" -eq 1 ]]; then
+        status_ok "1 agent active"
+        jq -r '.agents[] | "      \(.id | split("-")[0:2] | join("-")): \(.task)"' "$COORD_FILE" 2>/dev/null | while read line; do
+            printf "${DIM}$line${RESET}\n"
+        done
+    else
+        status_warn "$AGENT_COUNT agents active - coordinate carefully!"
+        jq -r '.agents[] | "      \(.id | split("-")[0:2] | join("-")): \(.task)"' "$COORD_FILE" 2>/dev/null | while read line; do
+            printf "${DIM}$line${RESET}\n"
+        done
+
+        # Check for file conflicts
+        CONFLICT_FILES=$(jq -r '[.agents[].files[]] | group_by(.) | map(select(length > 1)) | .[0][0] // empty' "$COORD_FILE" 2>/dev/null)
+        if [[ -n "$CONFLICT_FILES" ]]; then
+            status_crit "FILE CONFLICT: Multiple agents on $CONFLICT_FILES"
+        fi
+    fi
+else
+    status_info "Agent coordination not initialized"
+    printf "      ${DIM}Run: ./scripts/agent-coord.sh register \"your task\"${RESET}\n"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 section "TEST GARRISON"
 
 # Run tests silently and capture result
@@ -518,6 +559,11 @@ EOF
     printf "${RESET}"
     echo ""
     printf "  ${GREEN}Ready for battle. May your commits be atomic and your tests green.${RESET}\n"
+fi
+
+# Sync agent coordination to GitHub (quiet)
+if [[ -f "$SCRIPT_DIR/agent-coord.sh" ]]; then
+    "$SCRIPT_DIR/agent-coord.sh" sync-github >/dev/null 2>&1
 fi
 
 echo ""

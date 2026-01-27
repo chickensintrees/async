@@ -96,6 +96,39 @@ Or auto-generated and persisted to `~/.claude/agent-id`.
 - `app/Sources/Async/Services/*.swift` - Core services
 - `.claude/settings.json` - Project config
 
+#### Agent Coordination System (Task Awareness)
+
+While locks protect individual files, the **coordination system** provides high-level task awareness so agents can proactively stay out of each other's way.
+
+**Register your task at session start:**
+```bash
+./scripts/agent-coord.sh register "Building new feature X" "file1.swift,file2.swift"
+```
+
+**Check what other agents are doing:**
+```bash
+./scripts/agent-coord.sh status
+```
+
+**Update your task as work evolves:**
+```bash
+./scripts/agent-coord.sh update "Now fixing tests for feature X"
+```
+
+**Deregister when done:**
+```bash
+./scripts/agent-coord.sh deregister
+```
+
+**Check for conflicts before starting work:**
+```bash
+./scripts/agent-coord.sh check-conflicts "Models/User.swift,Services/API.swift"
+```
+
+**GitHub visibility:** Coordination state is synced to [Issue #28](https://github.com/chickensintrees/async/issues/28) during Thunderdome runs. This allows cross-machine visibility when Noah's agents need to see what Bill's agents are working on.
+
+**Thunderdome displays active agents** — the "ACTIVE AGENTS" section shows all registered agents and warns if multiple agents are working on the same files.
+
 #### Merge Strategy
 **Use rebase for local work, merge commits for collaboration:**
 
@@ -206,15 +239,19 @@ For urgent coordination, use SMS with @stef to notify both Bill and Noah's Claud
 ```bash
 # Start of session
 git fetch && git status
-./scripts/agent-lock.sh status
+./scripts/agent-coord.sh status              # See what other agents are doing
+./scripts/agent-coord.sh register "my task"  # Register your task
+./scripts/agent-lock.sh status               # Check file locks
 ./scripts/agent-lock.sh acquire <file> "description"
 
 # During work
-git pull --rebase origin main  # Before pushing
+./scripts/agent-coord.sh update "new task"   # Update task description
+git pull --rebase origin main                # Before pushing
 git add -A && git commit -m "..." && git push
 
 # End of session
-./scripts/agent-lock.sh release <file>
+./scripts/agent-coord.sh deregister          # Remove from coordination
+./scripts/agent-lock.sh release <file>       # Release file locks
 git push origin main
 
 # Conflict resolution
