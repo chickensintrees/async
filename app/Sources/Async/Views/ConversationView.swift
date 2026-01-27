@@ -8,6 +8,7 @@ struct GrowingTextInput: NSViewRepresentable {
     var placeholder: String
     @Binding var text: String
     var onSubmit: () -> Void
+    var onImagePaste: ((NSImage) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -57,6 +58,7 @@ struct GrowingTextInput: NSViewRepresentable {
         var parent: GrowingTextInput
         weak var textView: NSTextView?
         private var placeholderLabel: NSTextField?
+        private var lastPasteboardChangeCount: Int = 0
 
         init(_ parent: GrowingTextInput) {
             self.parent = parent
@@ -78,6 +80,37 @@ struct GrowingTextInput: NSViewRepresentable {
                 }
             }
             return false
+        }
+
+        /// Handle paste - check for images in clipboard
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            // Check if this is a paste operation with an image
+            let pasteboard = NSPasteboard.general
+            if pasteboard.changeCount != lastPasteboardChangeCount {
+                lastPasteboardChangeCount = pasteboard.changeCount
+
+                // Check for image data first (screenshots, copied images)
+                if let imageData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png),
+                   let image = NSImage(data: imageData) {
+                    parent.onImagePaste?(image)
+                    return false  // Don't insert text
+                }
+
+                // Check for file URLs that are images
+                if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+                    let imageExtensions = ["png", "jpg", "jpeg", "gif", "webp"]
+                    let imageURLs = urls.filter { imageExtensions.contains($0.pathExtension.lowercased()) }
+                    if !imageURLs.isEmpty {
+                        for url in imageURLs {
+                            if let image = NSImage(contentsOf: url) {
+                                parent.onImagePaste?(image)
+                            }
+                        }
+                        return false  // Don't insert file paths as text
+                    }
+                }
+            }
+            return true
         }
 
         func updatePlaceholder() {
@@ -286,9 +319,12 @@ struct ConversationView: View {
                 .help("Attach image")
                 .accessibilityLabel("Attach image")
 
-                GrowingTextInput(placeholder: "Type a message...", text: $newMessage) {
-                    sendMessage()
-                }
+                GrowingTextInput(
+                    placeholder: "Type a message...",
+                    text: $newMessage,
+                    onSubmit: sendMessage,
+                    onImagePaste: handleImagePaste
+                )
                 .frame(minHeight: 28, maxHeight: 120)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .cornerRadius(8)
@@ -304,6 +340,10 @@ struct ConversationView: View {
             }
         }
         .padding()
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            handleDrop(providers: providers)
+            return true
+        }
     }
 
     var attachmentPreview: some View {
@@ -377,6 +417,78 @@ struct ConversationView: View {
 
     func removeAttachment(_ attachment: PendingAttachment) {
         pendingAttachments.removeAll { $0.id == attachment.id }
+    }
+
+    func handleDrop(providers: [NSItemProvider]) {
+        for provider in providers {
+            // Handle file URLs (dragged files)
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+
+                    DispatchQueue.main.async {
+                        do {
+                            let attachment = try ImageService.shared.loadImage(from: url)
+                            self.pendingAttachments.append(attachment)
+                            self.attachmentError = nil
+                        } catch {
+                            self.attachmentError = error.localizedDescription
+                        }
+                    }
+                }
+            }
+            // Handle raw image data (dragged from browser, etc.)
+            else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, error in
+                    var image: NSImage?
+
+                    if let nsImage = item as? NSImage {
+                        image = nsImage
+                    } else if let data = item as? Data {
+                        image = NSImage(data: data)
+                    }
+
+                    if let image = image {
+                        DispatchQueue.main.async {
+                            self.addImageAsAttachment(image, filename: "dropped-image.png")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func handleImagePaste(_ image: NSImage) {
+        addImageAsAttachment(image, filename: "pasted-image.png")
+    }
+
+    func addImageAsAttachment(_ image: NSImage, filename: String) {
+        // Convert NSImage to PNG data
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            attachmentError = "Could not process image"
+            return
+        }
+
+        // Check size
+        if pngData.count > 20 * 1024 * 1024 {
+            attachmentError = "Image too large (max 20MB)"
+            return
+        }
+
+        // Generate thumbnail
+        let thumbnail = ImageService.shared.generateThumbnail(image: image)
+
+        let attachment = PendingAttachment(
+            image: image,
+            thumbnail: thumbnail,
+            filename: filename,
+            data: pngData
+        )
+        pendingAttachments.append(attachment)
+        attachmentError = nil
     }
 
     func deleteCurrentConversation() {
