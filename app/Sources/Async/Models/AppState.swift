@@ -1,6 +1,25 @@
 import SwiftUI
 import Supabase
 
+// File-based debug logging for memory system (Swift print() doesn't show when app runs)
+func memoryLog(_ source: String, _ message: String) {
+    // Use /tmp since app might be sandboxed and can't write to home directory
+    let logPath = URL(fileURLWithPath: "/tmp/async-memory-debug.log")
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(source)][\(timestamp)] \(message)\n"
+    if let data = line.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: logPath.path) {
+            if let handle = try? FileHandle(forWritingTo: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            }
+        } else {
+            try? data.write(to: logPath)
+        }
+    }
+}
+
 enum FilterMode {
     case all, unread
 }
@@ -39,6 +58,11 @@ class AppState: ObservableObject {
     @Published var showAdminPortal = false
     @Published var isLoading = false
     @Published var errorMessage: String?
+
+    // Memory system: track previous conversation for extraction on exit
+    private var previousConversationId: UUID?
+    private var previousMessages: [Message] = []
+    private var previousParticipants: [User] = []
 
     // Admin Portal state
     @Published var subscribers: [ConnectionWithUser] = []
@@ -228,11 +252,29 @@ class AppState: ObservableObject {
         defer { isLoading = false }
 
         do {
-            // Create conversation
+            // Determine all participants (including current user)
+            var allParticipants = participantIds
+            if !allParticipants.contains(user.id) {
+                allParticipants.append(user.id)
+            }
+
+            // Determine conversation kind based on participant count
+            let kind: ConversationKind = allParticipants.count == 2 ? .direct1to1 : .directGroup
+
+            // Generate canonical key for 1:1 conversations (ensures no duplicates)
+            var canonicalKey: String? = nil
+            if kind == .direct1to1 {
+                let sortedIds = allParticipants.map { $0.uuidString }.sorted()
+                canonicalKey = "dm:\(sortedIds[0]):\(sortedIds[1]):\(mode.rawValue)"
+            }
+
+            // Create conversation with proper kind and canonical key
             let conversation = Conversation(
                 id: UUID(),
                 mode: mode,
+                kind: kind,
                 title: title,
+                canonicalKey: canonicalKey,
                 createdAt: Date(),
                 updatedAt: Date()
             )
@@ -242,12 +284,7 @@ class AppState: ObservableObject {
                 .insert(conversation)
                 .execute()
 
-            // Add participants (including current user)
-            var allParticipants = participantIds
-            if !allParticipants.contains(user.id) {
-                allParticipants.append(user.id)
-            }
-
+            // Add participants
             for participantId in allParticipants {
                 let participant = ConversationParticipant(
                     conversationId: conversation.id,
@@ -317,6 +354,51 @@ class AppState: ObservableObject {
 
     func loadMessages(for conversationDetails: ConversationWithDetails) async {
         isLoading = true
+
+        // Memory extraction: if switching to a different conversation, extract from previous
+        let newConversationId = conversationDetails.conversation.id
+        memoryLog("AppState", "Loading conversation \(newConversationId), previous was \(previousConversationId?.uuidString ?? "nil")")
+
+        if let prevId = previousConversationId, prevId != newConversationId {
+            memoryLog("AppState", "Conversation switch detected! Triggering extraction...")
+            // Fire-and-forget extraction from previous conversation (runs in background)
+            let prevMessages = self.previousMessages
+            let prevParticipants = self.previousParticipants
+            memoryLog("AppState", "Previous had \(prevMessages.count) messages, \(prevParticipants.count) participants")
+
+            Task.detached {
+                guard prevMessages.count >= 3 else {
+                    memoryLog("Task", "Skipping: only \(prevMessages.count) messages (need 3+)")
+                    return
+                }
+                guard let agentParticipant = prevParticipants.first(where: { $0.isAgent }) else {
+                    memoryLog("Task", "Skipping: no agent found in participants")
+                    return
+                }
+                let participantIds = prevParticipants.map { $0.id }
+                memoryLog("Task", "Extracting from \(prevMessages.count) messages with agent \(agentParticipant.displayName)")
+                let memories = await MediatorService.shared.extractMemories(
+                    from: prevMessages,
+                    agentId: agentParticipant.id,
+                    participants: participantIds
+                )
+                memoryLog("Task", "Extracted \(memories.count) memories")
+                var stored = 0
+                for memory in memories {
+                    if let confidenceStr = memory.metadata?["confidence"],
+                       let confidence = Double(confidenceStr), confidence < 0.5 {
+                        memoryLog("Task", "Skipping low-confidence: \(memory.title)")
+                        continue
+                    }
+                    await MediatorService.shared.storeMemory(memory)
+                    stored += 1
+                }
+                memoryLog("Task", "✅ Stored \(stored) memories in background")
+            }
+        }
+
+        // Clear messages immediately to prevent showing stale data from previous conversation
+        self.messages = []
         defer { isLoading = false }
 
         do {
@@ -329,8 +411,38 @@ class AppState: ObservableObject {
                 .value
 
             self.messages = msgs
+            print("📨 Loaded \(msgs.count) messages for conversation \(conversationDetails.conversation.id)")
+
+            // Update conversation preview in sidebar with latest message
+            if let lastMsg = msgs.last {
+                updateConversationPreview(conversationId: conversationDetails.conversation.id, lastMessage: lastMsg)
+            }
+
+            // Track this conversation for memory extraction when we leave
+            self.previousConversationId = conversationDetails.conversation.id
+            self.previousMessages = msgs
+            self.previousParticipants = conversationDetails.participants
         } catch {
             errorMessage = "Failed to load messages: \(error.localizedDescription)"
+        }
+    }
+
+    /// Update a conversation's lastMessage in the conversations list (for sidebar preview)
+    private func updateConversationPreview(conversationId: UUID, lastMessage: Message) {
+        if let index = conversations.firstIndex(where: { $0.conversation.id == conversationId }) {
+            var updated = conversations[index]
+            updated = ConversationWithDetails(
+                conversation: updated.conversation,
+                participants: updated.participants,
+                lastMessage: lastMessage,
+                unreadCount: updated.unreadCount
+            )
+            conversations[index] = updated
+
+            // Also update selectedConversation if it's the same one
+            if selectedConversation?.conversation.id == conversationId {
+                selectedConversation = updated
+            }
         }
     }
 
@@ -338,12 +450,39 @@ class AppState: ObservableObject {
         let conversation = conversationDetails.conversation
         guard let user = currentUser else { return }
 
+        // Create message ID upfront for optimistic UI
+        let messageId = UUID()
+
+        // Optimistic UI: Show user's message immediately
+        let optimisticMessage = Message(
+            id: messageId,
+            conversationId: conversation.id,
+            senderId: user.id,
+            contentRaw: content,
+            contentProcessed: nil,
+            isFromAgent: false,
+            agentContext: nil,
+            createdAt: Date(),
+            processedAt: nil,
+            rawVisibleTo: nil
+        )
+        messages.append(optimisticMessage)
+
+        // Update sidebar preview immediately
+        updateConversationPreview(conversationId: conversation.id, lastMessage: optimisticMessage)
+
         do {
             var processedContent: String? = nil
             var agentContextJson: String? = nil
 
-            // Process through AI mediator for non-direct modes
-            if conversation.mode != .direct {
+            // Check if this is an agent-only chat (no human recipients)
+            let hasHumanRecipients = conversationDetails.participants.contains { $0.isHuman }
+
+            // Only process through AI mediator for human-to-human communication
+            // Skip mediator for: direct mode, agent-only chats
+            let shouldProcess = conversation.mode != .direct && hasHumanRecipients
+
+            if shouldProcess {
                 do {
                     // Get other participant name for context
                     let recipientName = conversation.title ?? "Recipient"
@@ -383,7 +522,7 @@ class AppState: ObservableObject {
             }
 
             let message = Message(
-                id: UUID(),
+                id: messageId,  // Use same ID as optimistic message
                 conversationId: conversation.id,
                 senderId: user.id,
                 contentRaw: content,
@@ -400,10 +539,132 @@ class AppState: ObservableObject {
                 .insert(message)
                 .execute()
 
-            // Reload messages
-            await loadMessages(for: conversationDetails)
+            // Update optimistic message with processed content (if any)
+            if processedContent != nil {
+                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                    messages[index] = message
+                }
+            }
+
+            // Check which agents should respond based on @mentions
+            let agentParticipants = conversationDetails.participants.filter { $0.isAgent }
+            let allAgents = await loadAgents()
+
+            // Determine which agents to trigger:
+            // 1. In true 1:1 with single agent: that agent always responds
+            // 2. Otherwise: only respond if @mentioned (prevents double-triggers)
+            let isAgentOnlyChat = conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == user.id }
+            let agentCount = agentParticipants.count
+
+            var agentsToRespond: [User] = []
+
+            if isAgentOnlyChat && agentCount == 1 {
+                // True 1:1 with single agent - always respond
+                agentsToRespond = agentParticipants
+            } else {
+                // Multi-agent chat or mixed - only respond if @mentioned
+                // This prevents double-triggers when one agent @mentions another
+                for agent in agentParticipants {
+                    if MediatorService.shared.isAgentMentioned(agent, in: content) {
+                        agentsToRespond.append(agent)
+                    }
+                }
+                // Also check for agents not in conversation but @mentioned
+                for agent in allAgents where !agentParticipants.contains(where: { $0.id == agent.id }) {
+                    if MediatorService.shared.isAgentMentioned(agent, in: content) {
+                        agentsToRespond.append(agent)
+                    }
+                }
+            }
+
+            // Generate responses from mentioned agents
+            for agent in agentsToRespond {
+                await generateAndSendAgentResponse(
+                    agent: agent,
+                    userMessage: content,
+                    senderName: user.displayName,
+                    conversation: conversation,
+                    conversationDetails: conversationDetails,
+                    allAgents: allAgents
+                )
+            }
         } catch {
             errorMessage = "Failed to send message: \(error.localizedDescription)"
+        }
+    }
+
+    /// Generate and send a response from an AI agent
+    /// Also checks if the agent @mentions other agents, triggering their responses
+    private func generateAndSendAgentResponse(
+        agent: User,
+        userMessage: String,
+        senderName: String,
+        conversation: Conversation,
+        conversationDetails: ConversationWithDetails,
+        allAgents: [User],
+        depth: Int = 0
+    ) async {
+        // Prevent infinite loops - max 2 levels of agent-to-agent
+        guard depth < 2 else {
+            print("Max agent response depth reached")
+            return
+        }
+
+        do {
+            // Generate response from the agent
+            let responseText = try await MediatorService.shared.generateAgentResponse(
+                to: userMessage,
+                from: agent,
+                conversationHistory: messages,
+                senderName: senderName,
+                participants: conversationDetails.participants
+            )
+
+            // Create the agent's message
+            let agentMessage = Message(
+                id: UUID(),
+                conversationId: conversation.id,
+                senderId: agent.id,
+                contentRaw: responseText,
+                contentProcessed: nil,
+                isFromAgent: true,
+                agentContext: nil,
+                createdAt: Date(),
+                processedAt: nil,
+                rawVisibleTo: nil
+            )
+
+            // Insert the agent's response
+            try await supabase
+                .from("messages")
+                .insert(agentMessage)
+                .execute()
+
+            // Reload messages to show the agent's response
+            await loadMessages(for: conversationDetails)
+
+            // Check if this agent @mentioned other agents - trigger their responses
+            let otherAgents = allAgents.filter { $0.id != agent.id }
+            for otherAgent in otherAgents {
+                if MediatorService.shared.isAgentMentioned(otherAgent, in: responseText) {
+                    // Small delay to make conversation feel more natural
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
+
+                    await generateAndSendAgentResponse(
+                        agent: otherAgent,
+                        userMessage: responseText,
+                        senderName: agent.displayName,
+                        conversation: conversation,
+                        conversationDetails: conversationDetails,
+                        allAgents: allAgents,
+                        depth: depth + 1
+                    )
+                }
+            }
+
+        } catch {
+            print("Agent response generation failed: \(error.localizedDescription)")
+            // Don't show error to user - agent response is optional
         }
     }
 
@@ -863,6 +1124,246 @@ class AppState: ObservableObject {
             errorMessage = "Failed to remove tag: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Agent Memory System
+
+    /// Extract and store memories when leaving a conversation (per STEF's suggestion)
+    private func extractMemoriesFromPreviousConversation() async {
+        // Need at least 3 messages and an agent participant for extraction
+        guard previousMessages.count >= 3,
+              let agentParticipant = previousParticipants.first(where: { $0.isAgent }) else {
+            return
+        }
+
+        let participantIds = previousParticipants.map { $0.id }
+
+        print("🧠 [Memory] Extracting memories from conversation with \(previousMessages.count) messages")
+
+        let memories = await MediatorService.shared.extractMemories(
+            from: previousMessages,
+            agentId: agentParticipant.id,
+            participants: participantIds
+        )
+
+        // Store each extracted memory
+        for memory in memories {
+            // Filter out low-confidence memories (< 0.5)
+            if let confidenceStr = memory.metadata?["confidence"],
+               let confidence = Double(confidenceStr),
+               confidence < 0.5 {
+                print("🧠 [Memory] Skipping low-confidence memory: \(memory.title)")
+                continue
+            }
+
+            await MediatorService.shared.storeMemory(memory)
+        }
+
+        print("🧠 [Memory] Stored \(memories.count) memories from previous conversation")
+    }
+
+    // MARK: - Agent Management
+
+    /// Load agent config for a specific agent
+    func loadAgentConfig(for agentId: UUID) async -> AgentConfig? {
+        do {
+            let configs: [AgentConfig] = try await supabase
+                .from("agent_configs")
+                .select()
+                .eq("user_id", value: agentId.uuidString)
+                .execute()
+                .value
+            return configs.first
+        } catch {
+            errorMessage = "Failed to load agent config: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Load all agent configs (for admin view)
+    func loadAllAgentConfigs() async -> [AgentConfig] {
+        do {
+            let configs: [AgentConfig] = try await supabase
+                .from("agent_configs")
+                .select()
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+            return configs
+        } catch {
+            errorMessage = "Failed to load agent configs: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    /// Create a new AI agent with config
+    func createAgent(
+        displayName: String,
+        systemPrompt: String,
+        description: String?,
+        backstory: String?,
+        voiceStyle: String?,
+        model: AgentModel,
+        temperature: Double,
+        isPublic: Bool,
+        capabilities: [String]
+    ) async -> User? {
+        guard let creator = currentUser else { return nil }
+
+        let agentId = UUID()
+
+        do {
+            // Create the user record
+            let agentMetadata = AgentMetadata(
+                provider: "anthropic",
+                model: model.rawValue,
+                capabilities: capabilities.isEmpty ? ["conversation"] : capabilities,
+                isSystem: false
+            )
+
+            let newAgent = User(
+                id: agentId,
+                githubHandle: nil,
+                displayName: displayName,
+                email: nil,
+                phoneNumber: nil,
+                avatarUrl: nil,
+                userType: .agent,
+                agentMetadata: agentMetadata,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+
+            try await supabase
+                .from("users")
+                .insert(newAgent)
+                .execute()
+
+            // Create the config record
+            let config = AgentConfig(
+                userId: agentId,
+                systemPrompt: systemPrompt,
+                backstory: backstory,
+                voiceStyle: voiceStyle,
+                canInitiate: false,
+                model: model.rawValue,
+                temperature: temperature,
+                isPublic: isPublic,
+                createdBy: creator.id,
+                description: description
+            )
+
+            try await supabase
+                .from("agent_configs")
+                .insert(config)
+                .execute()
+
+            // Clear the config cache in MediatorService
+            MediatorService.shared.clearConfigCache()
+
+            return newAgent
+        } catch {
+            errorMessage = "Failed to create agent: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Update an existing agent and its config
+    func updateAgent(
+        agentId: UUID,
+        displayName: String,
+        systemPrompt: String,
+        description: String?,
+        backstory: String?,
+        voiceStyle: String?,
+        model: AgentModel,
+        temperature: Double,
+        isPublic: Bool,
+        capabilities: [String]
+    ) async -> Bool {
+        do {
+            // Update user record
+            let agentMetadata = AgentMetadata(
+                provider: "anthropic",
+                model: model.rawValue,
+                capabilities: capabilities.isEmpty ? ["conversation"] : capabilities,
+                isSystem: false
+            )
+
+            let userUpdate = AgentUserUpdate(
+                displayName: displayName,
+                agentMetadata: agentMetadata,
+                updatedAt: Date()
+            )
+
+            try await supabase
+                .from("users")
+                .update(userUpdate)
+                .eq("id", value: agentId.uuidString)
+                .execute()
+
+            // Update config record
+            let configUpdate = AgentConfigUpdate(
+                systemPrompt: systemPrompt,
+                description: description,
+                backstory: backstory,
+                voiceStyle: voiceStyle,
+                model: model.rawValue,
+                temperature: temperature,
+                isPublic: isPublic,
+                updatedAt: Date()
+            )
+
+            try await supabase
+                .from("agent_configs")
+                .update(configUpdate)
+                .eq("user_id", value: agentId.uuidString)
+                .execute()
+
+            // Clear the config cache
+            MediatorService.shared.clearConfigCache()
+
+            return true
+        } catch {
+            errorMessage = "Failed to update agent: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Delete an agent (non-system only)
+    func deleteAgent(_ agentId: UUID) async -> Bool {
+        // Prevent deletion of system agents
+        if agentId == AppState.stefAgentId {
+            errorMessage = "Cannot delete system agents"
+            return false
+        }
+
+        if let user = await loadUser(byId: agentId), user.isSystemAgent {
+            errorMessage = "Cannot delete system agents"
+            return false
+        }
+
+        do {
+            // Delete config first (foreign key)
+            try await supabase
+                .from("agent_configs")
+                .delete()
+                .eq("user_id", value: agentId.uuidString)
+                .execute()
+
+            // Delete user
+            try await supabase
+                .from("users")
+                .delete()
+                .eq("id", value: agentId.uuidString)
+                .execute()
+
+            MediatorService.shared.clearConfigCache()
+            return true
+        } catch {
+            errorMessage = "Failed to delete agent: \(error.localizedDescription)"
+            return false
+        }
+    }
 }
 
 // Helper struct for user updates
@@ -878,6 +1379,42 @@ struct UserUpdate: Encodable {
         case githubHandle = "github_handle"
         case phoneNumber = "phone_number"
         case email
+        case updatedAt = "updated_at"
+    }
+}
+
+// Helper struct for agent user updates
+struct AgentUserUpdate: Encodable {
+    let displayName: String
+    let agentMetadata: AgentMetadata
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+        case agentMetadata = "agent_metadata"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Helper struct for agent config updates
+struct AgentConfigUpdate: Encodable {
+    let systemPrompt: String
+    let description: String?
+    let backstory: String?
+    let voiceStyle: String?
+    let model: String
+    let temperature: Double
+    let isPublic: Bool
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case systemPrompt = "system_prompt"
+        case description
+        case backstory
+        case voiceStyle = "voice_style"
+        case model
+        case temperature
+        case isPublic = "is_public"
         case updatedAt = "updated_at"
     }
 }

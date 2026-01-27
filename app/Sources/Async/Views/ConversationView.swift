@@ -72,7 +72,9 @@ struct ConversationView: View {
                             MessageBubble(
                                 message: message,
                                 isFromCurrentUser: message.senderId == appState.currentUser?.id,
-                                conversationMode: conversation.mode
+                                conversationMode: conversation.mode,
+                                senderName: conversationDetails.participants.first { $0.id == message.senderId }?.displayName,
+                                isAgentOnlyChat: conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == appState.currentUser?.id }
                             )
                             .id(message.id)
                         }
@@ -202,9 +204,11 @@ struct ConversationView: View {
         let content = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
 
+        // Clear input immediately for responsive feel
+        newMessage = ""
+
         Task {
             await appState.sendMessage(content: content, to: conversationDetails)
-            newMessage = ""
         }
     }
 
@@ -222,6 +226,8 @@ struct MessageBubble: View {
     let message: Message
     let isFromCurrentUser: Bool
     let conversationMode: ConversationMode
+    let senderName: String?  // Name of sender (for agent messages)
+    let isAgentOnlyChat: Bool  // True if no human recipients (agent messages don't get "processed")
 
     /// What content to display based on mode and sender
     var displayContent: String {
@@ -257,9 +263,9 @@ struct MessageBubble: View {
             if isFromCurrentUser { Spacer() }
 
             VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
-                // Sender indicator
+                // Sender indicator (show agent's name, not generic "AI Mediator")
                 if message.isFromAgent {
-                    Label("AI Mediator", systemImage: "cpu")
+                    Label(senderName ?? "AI", systemImage: "sparkles")
                         .font(.caption2)
                         .foregroundColor(.purple)
                 }
@@ -303,16 +309,17 @@ struct MessageBubble: View {
                 }
 
                 // Processing indicator for sender in non-direct modes
-                if isFromCurrentUser && conversationMode != .direct {
+                // Only show for human-to-human chats where AI processing is expected
+                if isFromCurrentUser && conversationMode != .direct && !isAgentOnlyChat {
                     HStack(spacing: 4) {
                         if wasProcessed {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                             Text("AI Processed")
                         } else {
-                            Image(systemName: "clock")
-                                .foregroundColor(.orange)
-                            Text("Processing...")
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.secondary)
+                            Text("Sent")
                         }
                     }
                     .font(.caption2)

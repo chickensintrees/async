@@ -107,6 +107,7 @@ struct MessagesView: View {
             // Conversation detail (right panel)
             if let selected = appState.selectedConversation {
                 ConversationView(conversationDetails: selected)
+                    .id(selected.id)  // Force fresh view when conversation changes
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 MessagesWelcomeView()

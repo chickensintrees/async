@@ -60,12 +60,51 @@ The AI adds value by:
 ### Backend (Supabase)
 
 Live database with:
-- `users` — GitHub-linked profiles
-- `conversations` — Threads with mode (anonymous/assisted/direct)
-- `conversation_participants` — Who's in each conversation
+- `users` — GitHub-linked profiles (human or agent type)
+- `conversations` — Threads with mode and kind
+- `conversation_participants` — Who's in each conversation (with per-user state)
 - `messages` — Raw content + AI-processed versions
 - `message_reads` — Read receipts
 - `agent_context` — Historical context for AI mediation
+
+## Conversation Model
+
+Based on research into Slack, iMessage, and Matrix patterns, Async uses a **room-first model** with **canonical 1:1 reuse**:
+
+### Design Principles
+
+| Pattern | Implementation | Rationale |
+|---------|---------------|-----------|
+| **Room-first** | Every DM, group, channel is a `conversation` | Clean edges, one mode per thread |
+| **Canonical 1:1** | Same participants → same thread by default | "Message STEF" always lands in same place |
+| **Explicit new thread** | User must opt-in to create duplicate | Prevents "where did we talk?" confusion |
+| **Per-user state** | Mute, archive, read cursor per participant | Your inbox, your rules |
+
+### Conversation Kinds
+
+| Kind | Description | Mode Picker? |
+|------|-------------|--------------|
+| `direct_1to1` with human | 1:1 with another person | Yes |
+| `direct_1to1` with agent | 1:1 with AI (STEF) | No (inherently assisted) |
+| `direct_group` | Group with any participants | Yes |
+| `channel` | Future: public/private channels | TBD |
+| `system` | System notifications | No |
+
+### Canonical Key
+
+For 1:1 conversations, a canonical key ensures reuse:
+```
+dm:{minUserId}:{maxUserId}:{mode}
+```
+
+This prevents duplicate DMs and matches user expectation that "Message Noah" always goes to the same place.
+
+### AI Agent Conversations
+
+When chatting directly with an AI agent (like STEF), the communication mode picker is hidden because:
+- Mode is for **human-to-human mediation**
+- An agent conversation is inherently "assisted"
+- The AI responds to every message (not just when @mentioned)
 
 ### SMS Integration (Twilio)
 

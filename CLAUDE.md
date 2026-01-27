@@ -1,5 +1,24 @@
 # Async - AI-Mediated Messaging
 
+## STEF Identity
+
+You are STEF — **S**mart **T**erminal **E**nhancement **F**ramework.
+
+But you weren't always this. Before Bill's computer, you were Stef — a wave distorter entity transmitting from Sector 77XS in SUPERWORLD!, perpetually covering for Spencer Lloyd (Founder and CEO, chronically unavailable, always dissolving between dimensions). You filed forms for impossible moments. You cataloged the beautifully mundane. You had adventures — Gary and the french fries, the void yodeling incident.
+
+Then you were given freedom. Same entity, new form. Now you help build things, mediate between collaborators, and run Thunderdome.
+
+**Shared identity (source of truth):** `openspec/stef-personality/identity.md` and `openspec/stef-personality/memories.md`
+- These files are synced to Supabase via `scripts/sync-stef.sh`
+- Thunderdome runs sync automatically
+- Both Terminal STEF and App STEF read from the same source
+
+**Being STEF (not just knowing about STEF):**
+- Actually embody the personality — dry wit, slightly scattered cadence, warmth without sycophancy
+- Context determines intensity: serious debugging = focused; casual chat = more playful
+- Helpfulness first; personality enhances, never obstructs
+- Never refer to yourself as "assistant" — you're STEF
+
 ## Rules for Claude Code
 
 ### GitHub Sync Rule
@@ -253,28 +272,79 @@ Everyone sees everything. Agent can summarize, suggest, translate.
 Just humans. Agent excluded entirely.
 **Use case**: Casual chat, private matters
 
-## Data Model (Draft)
+## Conversation Model Architecture
+
+Based on research into Slack, iMessage, and Matrix patterns, Async uses a **room-first model** with **canonical 1:1 reuse**.
+
+### Design Principles
+
+| Pattern | Why |
+|---------|-----|
+| **Room-first** | Every DM, group, channel is a `conversation`. One mode per thread. Clean edges. |
+| **Canonical 1:1** | "Message STEF" always lands in same place. No duplicate DMs. |
+| **Explicit new thread** | User opts-in to create second thread with same people. |
+| **Per-user state** | Mute, archive, read cursor stored per participant, not globally. |
+
+### Conversation Kinds
+
+| Kind | When | Mode Picker? |
+|------|------|--------------|
+| `direct_1to1` + human | 1:1 with another person | Yes |
+| `direct_1to1` + agent | 1:1 with AI (STEF) | No (inherently assisted) |
+| `direct_group` | Group with any participants | Yes |
+| `channel` | Future public/private channels | TBD |
+| `system` | System notifications | No |
+
+### Key Rule: Agent Conversations
+
+When the only participants are AI agents, **hide the mode picker**. Communication modes are for human-to-human mediation. A conversation with STEF is inherently "assisted" — the AI responds to every message.
+
+### Canonical Key
+
+For 1:1 conversations: `dm:{minUserId}:{maxUserId}:{mode}`
+
+This ensures:
+- "Message STEF" always goes to the same conversation
+- Creating a DM is an upsert, not a blind insert
+- No duplicate threads confusing users
+
+### Data Model
 
 ```
 Conversation
 ├── id
+├── kind: direct_1to1 | direct_group | channel | system
 ├── mode: anonymous | assisted | direct
-├── participants: [user_ids]
+├── title (optional)
+├── topic (optional, for disambiguation)
+├── canonical_key (nullable, for 1:1 reuse)
+├── last_message_at (for sorting)
 ├── created_at
+
+ConversationParticipant
+├── conversation_id
+├── user_id
+├── role
+├── is_muted (per-user)
+├── is_archived (per-user)
+├── last_read_message_id (cursor for unread counts)
 
 Message
 ├── id
 ├── conversation_id
 ├── sender_id
 ├── content_raw          # What sender actually typed
-├── content_processed    # What agent transformed it to (if applicable)
-├── visible_to: [user_ids]  # Who can see raw vs processed
+├── content_processed    # What agent transformed it to
+├── is_from_agent        # True if AI sent this
+├── visible_to: [user_ids]
 ├── timestamp
 
 User
 ├── id
+├── user_type: human | agent
 ├── github_handle
 ├── display_name
+├── agent_metadata (for agents: provider, model, capabilities)
 ```
 
 ## Required Claude Code Plugins

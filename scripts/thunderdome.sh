@@ -223,6 +223,22 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+section "STEF SYNC"
+
+# Sync STEF identity to Supabase (quiet, non-blocking)
+if [ -f "$SCRIPT_DIR/sync-stef.sh" ]; then
+    SYNC_OUTPUT=$("$SCRIPT_DIR/sync-stef.sh" 2>&1)
+    if echo "$SYNC_OUTPUT" | grep -q "✅"; then
+        CHAR_COUNT=$(echo "$SYNC_OUTPUT" | grep -oE "[0-9]+ characters" | head -1)
+        status_ok "Identity synced ($CHAR_COUNT)"
+    else
+        status_warn "Identity sync failed (non-blocking)"
+    fi
+else
+    status_info "No sync script found"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 section "GITHUB SYNC"
 
 git fetch origin --quiet 2>/dev/null

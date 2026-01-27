@@ -43,6 +43,199 @@ struct AgentMetadata: Codable, Equatable, Hashable {
     }
 }
 
+// MARK: - Agent Model Selection
+
+enum AgentModel: String, Codable, CaseIterable {
+    case sonnet = "claude-sonnet-4-20250514"
+    case opus = "claude-opus-4-5-20251101"
+    case haiku = "claude-3-5-haiku-20241022"
+
+    var displayName: String {
+        switch self {
+        case .sonnet: return "Sonnet 4"
+        case .opus: return "Opus 4.5"
+        case .haiku: return "Haiku 3.5"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .sonnet: return "Balanced speed and intelligence"
+        case .opus: return "Most capable, best for complex tasks"
+        case .haiku: return "Fastest responses, lower cost"
+        }
+    }
+}
+
+// MARK: - Agent Knowledge Base
+
+struct AgentKnowledgeBase: Codable, Equatable {
+    var documents: [String]?
+    var context: String?
+    var examples: [String]?
+
+    init(documents: [String]? = nil, context: String? = nil, examples: [String]? = nil) {
+        self.documents = documents
+        self.context = context
+        self.examples = examples
+    }
+}
+
+// MARK: - Agent Memory (Persistent Context)
+
+/// Represents a memory/fact that an agent has learned from conversations
+struct AgentMemory: Codable, Identifiable {
+    let id: UUID
+    let contextType: String  // 'fact', 'decision', 'interaction', 'summary'
+    let title: String
+    let content: String
+    let participants: [String]?  // Agent/user IDs involved
+    let createdAt: Date
+    let metadata: [String: String]?  // Source conversation, confidence, etc.
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case contextType = "context_type"
+        case title
+        case content
+        case participants
+        case createdAt = "created_at"
+        case metadata
+    }
+
+    init(id: UUID = UUID(), contextType: String, title: String, content: String,
+         participants: [String]? = nil, createdAt: Date = Date(), metadata: [String: String]? = nil) {
+        self.id = id
+        self.contextType = contextType
+        self.title = title
+        self.content = content
+        self.participants = participants
+        self.createdAt = createdAt
+        self.metadata = metadata
+    }
+}
+
+// MARK: - Agent Config
+
+struct AgentConfig: Codable, Identifiable {
+    let userId: UUID
+    var systemPrompt: String
+    var backstory: String?
+    var voiceStyle: String?
+    var canInitiate: Bool
+    var responseDelayMs: Int?
+    // Note: triggers is JSONB in DB but not used yet in app
+    // Skip decoding to avoid type mismatch errors
+    var maxDailyInitiated: Int?
+    var cooldownMinutes: Int?
+
+    // Extended fields (migration 006)
+    var model: String
+    var temperature: Double
+    var knowledgeBase: AgentKnowledgeBase?
+    var isPublic: Bool
+    var createdBy: UUID?
+    var description: String?
+    var avatarUrl: String?
+
+    let createdAt: Date
+    var updatedAt: Date
+
+    var id: UUID { userId }
+
+    /// Computed property to get/set model as enum
+    var modelEnum: AgentModel {
+        get { AgentModel(rawValue: model) ?? .sonnet }
+        set { model = newValue.rawValue }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case systemPrompt = "system_prompt"
+        case backstory
+        case voiceStyle = "voice_style"
+        case canInitiate = "can_initiate"
+        case responseDelayMs = "response_delay_ms"
+        // Note: triggers excluded - it's JSONB in DB, skipped for now
+        case maxDailyInitiated = "max_daily_initiated"
+        case cooldownMinutes = "cooldown_minutes"
+        case model
+        case temperature
+        case knowledgeBase = "knowledge_base"
+        case isPublic = "is_public"
+        case createdBy = "created_by"
+        case description
+        case avatarUrl = "avatar_url"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        userId = try container.decode(UUID.self, forKey: .userId)
+        systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
+        backstory = try container.decodeIfPresent(String.self, forKey: .backstory)
+        voiceStyle = try container.decodeIfPresent(String.self, forKey: .voiceStyle)
+        canInitiate = try container.decodeIfPresent(Bool.self, forKey: .canInitiate) ?? false
+        responseDelayMs = try container.decodeIfPresent(Int.self, forKey: .responseDelayMs)
+        // Skip triggers - it's JSONB in DB, not used yet in app
+        maxDailyInitiated = try container.decodeIfPresent(Int.self, forKey: .maxDailyInitiated)
+        cooldownMinutes = try container.decodeIfPresent(Int.self, forKey: .cooldownMinutes)
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? AgentModel.sonnet.rawValue
+        temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.7
+        knowledgeBase = try container.decodeIfPresent(AgentKnowledgeBase.self, forKey: .knowledgeBase)
+        isPublic = try container.decodeIfPresent(Bool.self, forKey: .isPublic) ?? true
+        createdBy = try container.decodeIfPresent(UUID.self, forKey: .createdBy)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        avatarUrl = try container.decodeIfPresent(String.self, forKey: .avatarUrl)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+
+    init(userId: UUID, systemPrompt: String, backstory: String? = nil, voiceStyle: String? = nil,
+         canInitiate: Bool = false, responseDelayMs: Int? = nil,
+         maxDailyInitiated: Int? = nil, cooldownMinutes: Int? = nil, model: String = AgentModel.sonnet.rawValue,
+         temperature: Double = 0.7, knowledgeBase: AgentKnowledgeBase? = nil, isPublic: Bool = true,
+         createdBy: UUID? = nil, description: String? = nil, avatarUrl: String? = nil,
+         createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.userId = userId
+        self.systemPrompt = systemPrompt
+        self.backstory = backstory
+        self.voiceStyle = voiceStyle
+        self.canInitiate = canInitiate
+        self.responseDelayMs = responseDelayMs
+        self.maxDailyInitiated = maxDailyInitiated
+        self.cooldownMinutes = cooldownMinutes
+        self.model = model
+        self.temperature = temperature
+        self.knowledgeBase = knowledgeBase
+        self.isPublic = isPublic
+        self.createdBy = createdBy
+        self.description = description
+        self.avatarUrl = avatarUrl
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+// MARK: - Conversation Kind
+
+enum ConversationKind: String, Codable, CaseIterable {
+    case direct1to1 = "direct_1to1"
+    case directGroup = "direct_group"
+    case channel = "channel"
+    case system = "system"
+
+    var displayName: String {
+        switch self {
+        case .direct1to1: return "Direct Message"
+        case .directGroup: return "Group"
+        case .channel: return "Channel"
+        case .system: return "System"
+        }
+    }
+}
+
 // MARK: - Conversation Mode
 
 enum ConversationMode: String, Codable, CaseIterable {
@@ -52,17 +245,17 @@ enum ConversationMode: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .anonymous: return "Anonymous (Agent-Mediated)"
-        case .assisted: return "Assisted (With Agent)"
-        case .direct: return "Direct (No Agent)"
+        case .anonymous: return "Mediated"
+        case .assisted: return "Enhanced"
+        case .direct: return "Direct"
         }
     }
 
     var description: String {
         switch self {
-        case .anonymous: return "Recipient only sees AI-processed version"
-        case .assisted: return "Everyone sees everything, AI can help"
-        case .direct: return "Just you and the recipient, no AI"
+        case .anonymous: return "AI rewrites your message professionally"
+        case .assisted: return "Your message + AI summaries"
+        case .direct: return "Your exact words, no AI"
         }
     }
 }
@@ -155,14 +348,22 @@ struct User: Codable, Identifiable, Equatable, Hashable {
 struct Conversation: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let mode: ConversationMode
+    let kind: ConversationKind
     let title: String?
+    let topic: String?
+    let canonicalKey: String?
+    let lastMessageAt: Date?
     let createdAt: Date
     let updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
         case id
         case mode
+        case kind
         case title
+        case topic
+        case canonicalKey = "canonical_key"
+        case lastMessageAt = "last_message_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -176,6 +377,40 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
         formatter.dateStyle = .short
         formatter.timeStyle = .none
         return "\(mode.displayName) - \(formatter.string(from: createdAt))"
+    }
+
+    /// Whether this is a 1:1 direct message
+    var is1to1: Bool { kind == .direct1to1 }
+
+    /// Whether this is a group conversation
+    var isGroup: Bool { kind == .directGroup || kind == .channel }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        mode = try container.decode(ConversationMode.self, forKey: .mode)
+        // Default to directGroup for backward compatibility
+        kind = try container.decodeIfPresent(ConversationKind.self, forKey: .kind) ?? .directGroup
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        topic = try container.decodeIfPresent(String.self, forKey: .topic)
+        canonicalKey = try container.decodeIfPresent(String.self, forKey: .canonicalKey)
+        lastMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastMessageAt)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+
+    init(id: UUID, mode: ConversationMode, kind: ConversationKind = .directGroup,
+         title: String? = nil, topic: String? = nil, canonicalKey: String? = nil,
+         lastMessageAt: Date? = nil, createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.id = id
+        self.mode = mode
+        self.kind = kind
+        self.title = title
+        self.topic = topic
+        self.canonicalKey = canonicalKey
+        self.lastMessageAt = lastMessageAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -236,8 +471,14 @@ struct ConversationWithDetails: Identifiable, Equatable, Hashable {
         }
     }
 
+    // Hash and equality only by conversation ID so List selection stays stable
+    // when other properties change (lastMessage, unreadCount, participants)
     func hash(into hasher: inout Hasher) {
         hasher.combine(conversation.id)
+    }
+
+    static func == (lhs: ConversationWithDetails, rhs: ConversationWithDetails) -> Bool {
+        lhs.conversation.id == rhs.conversation.id
     }
 }
 
@@ -248,12 +489,41 @@ struct ConversationParticipant: Codable {
     let userId: UUID
     let joinedAt: Date
     let role: String
+    var isMuted: Bool
+    var isArchived: Bool
+    var lastReadMessageId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case conversationId = "conversation_id"
         case userId = "user_id"
         case joinedAt = "joined_at"
         case role
+        case isMuted = "is_muted"
+        case isArchived = "is_archived"
+        case lastReadMessageId = "last_read_message_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        conversationId = try container.decode(UUID.self, forKey: .conversationId)
+        userId = try container.decode(UUID.self, forKey: .userId)
+        joinedAt = try container.decode(Date.self, forKey: .joinedAt)
+        role = try container.decode(String.self, forKey: .role)
+        // Default values for backward compatibility
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        lastReadMessageId = try container.decodeIfPresent(UUID.self, forKey: .lastReadMessageId)
+    }
+
+    init(conversationId: UUID, userId: UUID, joinedAt: Date = Date(), role: String = "member",
+         isMuted: Bool = false, isArchived: Bool = false, lastReadMessageId: UUID? = nil) {
+        self.conversationId = conversationId
+        self.userId = userId
+        self.joinedAt = joinedAt
+        self.role = role
+        self.isMuted = isMuted
+        self.isArchived = isArchived
+        self.lastReadMessageId = lastReadMessageId
     }
 }
 

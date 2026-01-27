@@ -4,15 +4,15 @@ import XCTest
 final class ConversationModeTests: XCTestCase {
 
     func testDisplayNames() {
-        XCTAssertEqual(ConversationMode.anonymous.displayName, "Anonymous (Agent-Mediated)")
-        XCTAssertEqual(ConversationMode.assisted.displayName, "Assisted (With Agent)")
-        XCTAssertEqual(ConversationMode.direct.displayName, "Direct (No Agent)")
+        XCTAssertEqual(ConversationMode.anonymous.displayName, "Mediated")
+        XCTAssertEqual(ConversationMode.assisted.displayName, "Enhanced")
+        XCTAssertEqual(ConversationMode.direct.displayName, "Direct")
     }
 
     func testDescriptions() {
-        XCTAssertEqual(ConversationMode.anonymous.description, "Recipient only sees AI-processed version")
-        XCTAssertEqual(ConversationMode.assisted.description, "Everyone sees everything, AI can help")
-        XCTAssertEqual(ConversationMode.direct.description, "Just you and the recipient, no AI")
+        XCTAssertEqual(ConversationMode.anonymous.description, "AI rewrites your message professionally")
+        XCTAssertEqual(ConversationMode.assisted.description, "Your message + AI summaries")
+        XCTAssertEqual(ConversationMode.direct.description, "Your exact words, no AI")
     }
 
     func testCaseIterable() {
@@ -95,7 +95,7 @@ final class ConversationTests: XCTestCase {
         let conversation = makeConversation(title: nil)
         // When title is nil, displayTitle falls back to mode + date
         // Note: ConversationWithDetails.displayTitle shows participant names instead
-        XCTAssertTrue(conversation.displayTitle.hasPrefix("Assisted (With Agent)"))
+        XCTAssertTrue(conversation.displayTitle.hasPrefix("Enhanced"))
     }
 
     func testConversationHashable() {

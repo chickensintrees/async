@@ -6,7 +6,10 @@ struct ContactsView: View {
     @State private var contacts: [User] = []
     @State private var isLoading = true
     @State private var showAddContact = false
+    @State private var showAddAgent = false
     @State private var selectedContact: User?
+    @State private var selectedAgent: User?
+    @State private var selectedAgentConfig: AgentConfig?
     @State private var showAgents = true
     @State private var searchText = ""
 
@@ -61,10 +64,17 @@ struct ContactsView: View {
                     .foregroundColor(.secondary)
                     .padding(.leading, 8)
 
-                Button(action: { showAddContact = true }) {
+                Menu {
+                    Button(action: { showAddContact = true }) {
+                        Label("Add Person", systemImage: "person.badge.plus")
+                    }
+                    Button(action: { showAddAgent = true }) {
+                        Label("Create Agent", systemImage: "sparkles")
+                    }
+                } label: {
                     Image(systemName: "plus")
                 }
-                .buttonStyle(.bordered)
+                .menuStyle(.borderlessButton)
 
                 Button(action: loadContacts) {
                     Image(systemName: "arrow.clockwise")
@@ -106,10 +116,13 @@ struct ContactsView: View {
                     // AI Agents Section
                     if showAgents && !filteredAgents.isEmpty {
                         Section {
-                            ForEach(filteredAgents) { contact in
-                                ContactRowView(contact: contact, onEdit: {
-                                    if !contact.isSystemAgent {
-                                        selectedContact = contact
+                            ForEach(filteredAgents) { agent in
+                                ContactRowView(contact: agent, onEdit: {
+                                    // Load agent config then show editor
+                                    Task {
+                                        let config = await appState.loadAgentConfig(for: agent.id)
+                                        selectedAgentConfig = config
+                                        selectedAgent = agent
                                     }
                                 })
                             }
@@ -187,6 +200,13 @@ struct ContactsView: View {
                 showAddContact = false
             })
         }
+        .sheet(isPresented: $showAddAgent) {
+            AgentConfigView()
+                .environmentObject(appState)
+                .onDisappear {
+                    loadContacts()  // Refresh to show new agent
+                }
+        }
         .sheet(item: $selectedContact) { contact in
             EditContactView(contact: contact, onSave: { updated in
                 if let index = contacts.firstIndex(where: { $0.id == updated.id }) {
@@ -197,6 +217,14 @@ struct ContactsView: View {
                 contacts.removeAll { $0.id == contact.id }
                 selectedContact = nil
             })
+        }
+        .sheet(item: $selectedAgent) { agent in
+            AgentConfigView(agent: agent, config: selectedAgentConfig)
+                .environmentObject(appState)
+                .onDisappear {
+                    selectedAgentConfig = nil
+                    loadContacts()  // Refresh to show updates
+                }
         }
     }
 

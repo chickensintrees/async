@@ -42,11 +42,22 @@ struct NewConversationView: View {
         selectedUsers.contains { $0.isHuman }
     }
 
+    /// True when only AI agents are selected (no humans)
+    /// In this case, mode picker should be hidden - it's inherently "assisted"
+    var isAgentOnlyChat: Bool {
+        !selectedParticipants.isEmpty && hasSelectedAgent && !hasSelectedHuman
+    }
+
+    /// The effective mode - forced to .assisted for agent-only chats
+    var effectiveMode: ConversationMode {
+        isAgentOnlyChat ? .assisted : selectedMode
+    }
+
     // Computed participants based on mode rules
     var participantsForConversation: [UUID] {
         var participants = Array(selectedParticipants)
 
-        switch selectedMode {
+        switch effectiveMode {
         case .direct:
             // Direct mode: remove any agents
             participants = participants.filter { id in
@@ -71,7 +82,8 @@ struct NewConversationView: View {
         let hasHumanRecipient = finalParticipants.contains { id in
             allContacts.first { $0.id == id }?.isHuman == true
         }
-        return !selectedParticipants.isEmpty && (hasHumanRecipient || selectedMode != .anonymous)
+        // Agent-only chats don't require human recipients
+        return !selectedParticipants.isEmpty && (hasHumanRecipient || isAgentOnlyChat || effectiveMode != .anonymous)
     }
 
     var body: some View {
@@ -194,42 +206,61 @@ struct NewConversationView: View {
                                 .textFieldStyle(.roundedBorder)
                         }
 
-                        Divider()
-                            .padding(.vertical, 8)
+                        // Mode Section - Hidden for agent-only chats
+                        if !isAgentOnlyChat {
+                            Divider()
+                                .padding(.vertical, 8)
 
-                        // Mode Section
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Communication Mode")
-                                .font(.headline)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Message Processing")
+                                    .font(.headline)
 
-                            Picker("Mode", selection: $selectedMode) {
-                                ForEach(ConversationMode.allCases, id: \.self) { mode in
-                                    VStack(alignment: .leading) {
-                                        Text(mode.displayName)
-                                        Text(mode.description)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+                                Picker("Mode", selection: $selectedMode) {
+                                    ForEach(ConversationMode.allCases, id: \.self) { mode in
+                                        VStack(alignment: .leading) {
+                                            Text(mode.displayName)
+                                            Text(mode.description)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .tag(mode)
                                     }
-                                    .tag(mode)
                                 }
-                            }
-                            .pickerStyle(.radioGroup)
-                            .labelsHidden()
-                            .onChange(of: selectedMode) { _, _ in
-                                updateModeWarning()
-                            }
+                                .pickerStyle(.radioGroup)
+                                .labelsHidden()
+                                .onChange(of: selectedMode) { _, _ in
+                                    updateModeWarning()
+                                }
 
-                            // Mode warning
-                            if let warning = modeWarning {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.orange)
-                                    Text(warning)
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
+                                // Mode warning
+                                if let warning = modeWarning {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(.orange)
+                                        Text(warning)
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                    .padding(.top, 4)
                                 }
-                                .padding(.top, 4)
                             }
+                        } else {
+                            // Agent-only chat info
+                            Divider()
+                                .padding(.vertical, 8)
+
+                            HStack(spacing: 8) {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.purple)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("AI Agent Chat")
+                                        .font(.headline)
+                                    Text("Messages will be sent directly to the AI agent")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
                     }
                     .padding()
@@ -283,14 +314,13 @@ struct NewConversationView: View {
 
         switch selectedMode {
         case .direct:
-            if hasSelectedAgent {
-                modeWarning = "AI agents will be excluded in Direct mode"
-            }
+            // No warnings needed - agents can still respond via @mentions
+            break
         case .anonymous:
             if !hasSelectedHuman {
-                modeWarning = "Anonymous mode requires at least one human recipient"
+                modeWarning = "Mediated mode requires at least one human recipient"
             } else if !hasSelectedAgent {
-                modeWarning = "STEF will be added automatically for mediation"
+                modeWarning = "STEF will be added to process messages"
             }
         case .assisted:
             break
@@ -308,13 +338,19 @@ struct NewConversationView: View {
         guard !participants.isEmpty else { return }
 
         Task {
-            // Check if conversation with same participants already exists (same mode, no title)
+            // Check if conversation with EXACT same participants already exists (same mode, no title)
             if title.isEmpty && participants.count == 1 {
                 let recipientId = participants.first!
                 if let existing = appState.conversations.first(where: { convo in
+                    // Must be a true 1:1 conversation (kind check)
+                    convo.conversation.is1to1 &&
+                    // Exactly one other participant
                     convo.participants.count == 1 &&
+                    // That participant is our recipient
                     convo.participants.first?.id == recipientId &&
-                    convo.conversation.mode == selectedMode &&
+                    // Same communication mode
+                    convo.conversation.mode == effectiveMode &&
+                    // No custom title (untitled DMs are reusable)
                     (convo.conversation.title == nil || convo.conversation.title?.isEmpty == true)
                 }) {
                     // Open existing conversation instead of creating duplicate
@@ -324,10 +360,10 @@ struct NewConversationView: View {
                 }
             }
 
-            // Create new conversation
+            // Create new conversation with effective mode
             if let conversation = await appState.createConversation(
                 with: participants,
-                mode: selectedMode,
+                mode: effectiveMode,
                 title: title.isEmpty ? nil : title
             ) {
                 appState.selectedConversation = conversation
