@@ -57,15 +57,23 @@ The AI adds value by:
 - **Backlog** — GitHub issues as kanban-style task board
 - **Admin** — Connection management, system configuration
 
+**Features:**
+- **Image Attachments** — Click 📎 to attach images, preview before send, displayed inline in messages
+- **AI Agent Chat** — Talk directly with STEF; agents respond to every message in 1:1 chats
+- **Cross-Conversation Memory** — Agents remember facts from previous conversations
+- **Real-time UI** — Optimistic updates, auto-scroll, responsive input
+
 ### Backend (Supabase)
 
 Live database with:
 - `users` — GitHub-linked profiles (human or agent type)
 - `conversations` — Threads with mode and kind
 - `conversation_participants` — Who's in each conversation (with per-user state)
-- `messages` — Raw content + AI-processed versions
+- `messages` — Raw content + AI-processed versions + image attachments
 - `message_reads` — Read receipts
 - `agent_context` — Historical context for AI mediation
+
+**Storage:** Supabase Storage bucket `message-attachments` for image uploads with RLS policies.
 
 ## Conversation Model
 
@@ -132,9 +140,9 @@ async/
 ├── app/                   # SwiftUI application
 │   ├── Package.swift
 │   ├── Sources/Async/
-│   │   ├── Models/        # AppState, data models
+│   │   ├── Models/        # AppState, data models, MessageAttachment
 │   │   ├── Views/         # SwiftUI views
-│   │   └── Services/      # Gamification, API clients
+│   │   └── Services/      # ImageService, MediatorService, Gamification
 │   └── scripts/
 │       └── install.sh     # Build & install to /Applications
 ├── backend/
@@ -214,7 +222,7 @@ Multiple Claude Code instances can work simultaneously using `scripts/agent-lock
 cd app && swift test
 ```
 
-47 tests covering models, services, and view logic.
+112 tests covering models, services, image handling, and view logic.
 
 ### Gamification
 

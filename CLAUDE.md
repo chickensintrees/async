@@ -405,9 +405,11 @@ Since no messenger-specific plugins exist, here are key SwiftUI patterns for cha
 - `users` - User profiles linked to GitHub
 - `conversations` - Chat threads with mode (anonymous/assisted/direct)
 - `conversation_participants` - Who's in each conversation
-- `messages` - Raw content + AI-processed content
+- `messages` - Raw content + AI-processed content + attachments (JSONB)
 - `message_reads` - Read receipts
 - `agent_context` - Historical context for AI mediation (session logs, decisions, background)
+
+**Storage:** `message-attachments` bucket in Supabase Storage for image uploads.
 
 Schema: `backend/database/schema.sql`
 
