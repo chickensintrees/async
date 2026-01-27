@@ -195,7 +195,10 @@ class AppState: ObservableObject {
                     let details = await loadConversationDetails(convo, currentUserId: user.id)
                     result.append(details)
                 }
+                print("📋 [LOAD] Loaded \(result.count) conversations")
+                print("📋 [LOAD] Selected before: \(selectedConversation?.conversation.id.uuidString ?? "nil")")
                 self.conversations = result
+                print("📋 [LOAD] Selected after: \(selectedConversation?.conversation.id.uuidString ?? "nil")")
             }
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
@@ -448,7 +451,12 @@ class AppState: ObservableObject {
 
             // Also update selectedConversation if it's the same one
             if selectedConversation?.conversation.id == conversationId {
+                print("📋 [PREVIEW] Updating selectedConversation for: \(conversationId)")
                 selectedConversation = updated
+            } else {
+                print("📋 [PREVIEW] NOT updating selectedConversation - IDs don't match")
+                print("📋 [PREVIEW]   Selected: \(selectedConversation?.conversation.id.uuidString ?? "nil")")
+                print("📋 [PREVIEW]   Updated:  \(conversationId)")
             }
         }
     }
@@ -456,6 +464,11 @@ class AppState: ObservableObject {
     func sendMessage(content: String, attachments: [PendingAttachment] = [], to conversationDetails: ConversationWithDetails) async {
         let conversation = conversationDetails.conversation
         guard let user = currentUser else { return }
+
+        // DEBUG: Log which conversation the message is being sent to
+        print("📤 [SEND] Sending to conversation: \(conversation.id)")
+        print("📤 [SEND] Selected conversation: \(selectedConversation?.conversation.id.uuidString ?? "nil")")
+        print("📤 [SEND] Match: \(conversation.id == selectedConversation?.conversation.id)")
 
         // Create message ID upfront for optimistic UI
         let messageId = UUID()

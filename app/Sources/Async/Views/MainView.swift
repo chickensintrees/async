@@ -165,6 +165,19 @@ struct ConversationListPanel: View {
                 }
             }
             .listStyle(.plain)
+            .onChange(of: appState.selectedConversation) { oldValue, newValue in
+                // DEBUG: Track when selection changes and from what source
+                let oldId = oldValue?.conversation.id.uuidString ?? "nil"
+                let newId = newValue?.conversation.id.uuidString ?? "nil"
+                if oldId != newId {
+                    print("🔄 [LIST] Selection changed: \(oldId) → \(newId)")
+                    // Print stack trace hint - which conversations exist
+                    print("🔄 [LIST] Conversations in list: \(appState.conversations.map { $0.conversation.id.uuidString.prefix(8) })")
+                }
+            }
+            .onChange(of: appState.conversations.count) { oldCount, newCount in
+                print("📋 [LIST] Conversations count changed: \(oldCount) → \(newCount)")
+            }
         }
         .frame(maxHeight: .infinity)
     }

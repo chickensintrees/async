@@ -338,6 +338,10 @@ struct ConversationView: View {
         let content = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !pendingAttachments.isEmpty else { return }
 
+        // DEBUG: Log conversation state at send time
+        print("📤 [VIEW] Sending from view with conversation: \(conversationDetails.conversation.id)")
+        print("📤 [VIEW] AppState selectedConversation: \(appState.selectedConversation?.conversation.id.uuidString ?? "nil")")
+
         // Capture attachments and clear input immediately for responsive feel
         let attachmentsToSend = pendingAttachments
         newMessage = ""
