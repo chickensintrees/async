@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "test": "deno test --allow-env tests/",
+    "test:verbose": "deno test --allow-env tests/ --reporter=verbose"
+  },
+  "imports": {
+    "std/": "https://deno.land/std@0.168.0/"
+  }
+}

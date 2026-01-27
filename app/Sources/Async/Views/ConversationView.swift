@@ -1,10 +1,61 @@
 import SwiftUI
+import AppKit
+
+// NSTextField wrapper for reliable input
+struct MessageTextField: NSViewRepresentable {
+    var placeholder: String
+    @Binding var text: String
+    var onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.placeholderString = placeholder
+        textField.delegate = context.coordinator
+        textField.bezelStyle = .roundedBezel
+        textField.focusRingType = .exterior
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: MessageTextField
+
+        init(_ parent: MessageTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            if let textField = obj.object as? NSTextField {
+                parent.text = textField.stringValue
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
+    }
+}
 
 struct ConversationView: View {
     @EnvironmentObject var appState: AppState
-    let conversation: Conversation
+    let conversationDetails: ConversationWithDetails
     @State private var newMessage = ""
-    @FocusState private var isInputFocused: Bool
+    @State private var showDeleteConfirmation = false
+
+    private var conversation: Conversation { conversationDetails.conversation }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +72,9 @@ struct ConversationView: View {
                             MessageBubble(
                                 message: message,
                                 isFromCurrentUser: message.senderId == appState.currentUser?.id,
-                                conversationMode: conversation.mode
+                                conversationMode: conversation.mode,
+                                senderName: conversationDetails.participants.first { $0.id == message.senderId }?.displayName,
+                                isAgentOnlyChat: conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == appState.currentUser?.id }
                             )
                             .id(message.id)
                         }
@@ -43,11 +96,11 @@ struct ConversationView: View {
             messageInput
         }
         .task {
-            await appState.loadMessages(for: conversation)
+            await appState.loadMessages(for: conversationDetails)
         }
-        .onChange(of: conversation) { _, newConvo in
+        .onChange(of: conversationDetails) { _, newDetails in
             Task {
-                await appState.loadMessages(for: newConvo)
+                await appState.loadMessages(for: newDetails)
             }
         }
     }
@@ -55,11 +108,11 @@ struct ConversationView: View {
     var conversationHeader: some View {
         HStack {
             VStack(alignment: .leading) {
-                Text(conversation.displayTitle)
+                Text(conversationDetails.displayTitle)
                     .font(.headline)
                 HStack(spacing: 4) {
                     modeIcon
-                    Text(conversation.mode.displayName)
+                    Text(modeLabel)
                         .font(.caption)
                 }
                 .foregroundColor(.secondary)
@@ -67,16 +120,38 @@ struct ConversationView: View {
 
             Spacer()
 
+            // Refresh button
             Button(action: {
-                Task { await appState.loadMessages(for: conversation) }
+                Task { await appState.loadMessages(for: conversationDetails) }
             }) {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help("Refresh messages")
+            .help("Refresh")
+            .accessibilityLabel("Refresh messages")
+
+            // Delete button
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.plain)
+            .help("Delete Conversation")
+            .accessibilityLabel("Delete conversation")
+            .accessibilityHint("Permanently deletes this conversation and all messages")
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor))
+        .alert("Delete Conversation?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteCurrentConversation()
+            }
+        } message: {
+            Text("This will permanently delete this conversation and all its messages.")
+        }
     }
 
     var modeIcon: some View {
@@ -86,7 +161,7 @@ struct ConversationView: View {
                 Image(systemName: "eye.slash")
                     .foregroundColor(.purple)
             case .assisted:
-                Image(systemName: "person.2.wave.2")
+                Image(systemName: "sparkles")
                     .foregroundColor(.blue)
             case .direct:
                 Image(systemName: "arrow.left.arrow.right")
@@ -95,17 +170,23 @@ struct ConversationView: View {
         }
     }
 
+    var modeLabel: String {
+        switch conversation.mode {
+        case .anonymous: return "Anonymous"
+        case .assisted: return "AI Assisted"
+        case .direct: return "Direct"
+        }
+    }
+
     var messageInput: some View {
         HStack(spacing: 12) {
-            TextField("Type a message...", text: $newMessage, axis: .vertical)
-                .textFieldStyle(.plain)
-                .padding(8)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(8)
-                .focused($isInputFocused)
-                .onSubmit {
-                    sendMessage()
-                }
+            MessageTextField(placeholder: "Type a message...", text: $newMessage) {
+                sendMessage()
+            }
+            .frame(height: 28)
+            .padding(4)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
 
             Button(action: sendMessage) {
                 Image(systemName: "paperplane.fill")
@@ -114,6 +195,7 @@ struct ConversationView: View {
             .buttonStyle(.borderedProminent)
             .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: .command)
+            .accessibilityLabel("Send message")
         }
         .padding()
     }
@@ -122,9 +204,18 @@ struct ConversationView: View {
         let content = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
 
+        // Clear input immediately for responsive feel
+        newMessage = ""
+
         Task {
-            await appState.sendMessage(content: content, to: conversation)
-            newMessage = ""
+            await appState.sendMessage(content: content, to: conversationDetails)
+        }
+    }
+
+    func deleteCurrentConversation() {
+        let idToDelete = conversationDetails.conversation.id
+        Task {
+            await appState.deleteConversation(idToDelete)
         }
     }
 }
@@ -135,35 +226,104 @@ struct MessageBubble: View {
     let message: Message
     let isFromCurrentUser: Bool
     let conversationMode: ConversationMode
+    let senderName: String?  // Name of sender (for agent messages)
+    let isAgentOnlyChat: Bool  // True if no human recipients (agent messages don't get "processed")
+
+    /// What content to display based on mode and sender
+    var displayContent: String {
+        switch conversationMode {
+        case .direct:
+            return message.contentRaw
+        case .assisted:
+            // Show raw content (processed shown separately below)
+            return message.contentRaw
+        case .anonymous:
+            // Sender sees their raw message, recipient sees processed
+            if isFromCurrentUser {
+                return message.contentRaw
+            } else {
+                return message.contentProcessed ?? message.contentRaw
+            }
+        }
+    }
+
+    /// Whether to show the AI-processed badge/content
+    var showProcessedContent: Bool {
+        guard let _ = message.contentProcessed else { return false }
+        return conversationMode == .assisted
+    }
+
+    /// Whether this message was AI-processed
+    var wasProcessed: Bool {
+        message.contentProcessed != nil
+    }
 
     var body: some View {
         HStack {
             if isFromCurrentUser { Spacer() }
 
             VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
-                // Sender indicator
+                // Sender indicator (show agent's name, not generic "AI Mediator")
                 if message.isFromAgent {
-                    Label("AI Agent", systemImage: "cpu")
+                    Label(senderName ?? "AI", systemImage: "sparkles")
                         .font(.caption2)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.purple)
+                }
+
+                // Anonymous mode indicator for recipient
+                if conversationMode == .anonymous && !isFromCurrentUser && wasProcessed {
+                    HStack(spacing: 4) {
+                        Image(systemName: "eye.slash")
+                        Text("AI-Mediated")
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.purple)
                 }
 
                 // Message content
-                Text(message.contentRaw)
+                Text(displayContent)
                     .padding(12)
-                    .background(isFromCurrentUser ? Color.blue : Color(nsColor: .controlBackgroundColor))
-                    .foregroundColor(isFromCurrentUser ? .white : .primary)
+                    .background(messageBubbleColor)
+                    .foregroundColor(messageForegroundColor)
                     .cornerRadius(16)
 
-                // AI processed version (if available and in assisted mode)
-                if conversationMode == .assisted, let processed = message.contentProcessed {
-                    HStack(spacing: 4) {
-                        Image(systemName: "sparkles")
+                // AI processed summary (for assisted mode)
+                if showProcessedContent, let processed = message.contentProcessed {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                            Text("AI Summary")
+                                .fontWeight(.medium)
+                        }
+                        .font(.caption)
+                        .foregroundColor(.purple)
+
                         Text(processed)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .font(.caption)
+                    .padding(8)
+                    .background(Color.purple.opacity(0.1))
+                    .cornerRadius(8)
+                    .padding(.horizontal, 4)
+                }
+
+                // Processing indicator for sender in non-direct modes
+                // Only show for human-to-human chats where AI processing is expected
+                if isFromCurrentUser && conversationMode != .direct && !isAgentOnlyChat {
+                    HStack(spacing: 4) {
+                        if wasProcessed {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("AI Processed")
+                        } else {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.secondary)
+                            Text("Sent")
+                        }
+                    }
+                    .font(.caption2)
                     .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
                 }
 
                 // Timestamp
@@ -174,5 +334,20 @@ struct MessageBubble: View {
 
             if !isFromCurrentUser { Spacer() }
         }
+    }
+
+    var messageBubbleColor: Color {
+        if conversationMode == .anonymous && !isFromCurrentUser && wasProcessed {
+            // AI-mediated messages have a purple tint
+            return Color.purple.opacity(0.2)
+        }
+        return isFromCurrentUser ? Color.blue : Color(nsColor: .controlBackgroundColor)
+    }
+
+    var messageForegroundColor: Color {
+        if conversationMode == .anonymous && !isFromCurrentUser && wasProcessed {
+            return .primary
+        }
+        return isFromCurrentUser ? .white : .primary
     }
 }

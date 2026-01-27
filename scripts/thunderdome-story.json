@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "version": "2.0",
+    "description": "Story state for Thunderdome. Events that happened, not predictions of what will."
+  },
+  "chronicle": {
+    "description": "A log of notable events. The story emerges from these.",
+    "events": [
+      {
+        "date": "2026-01-25",
+        "type": "milestone",
+        "event": "Project kickoff. Database schema live, dashboard running.",
+        "actors": ["chickensintrees"]
+      },
+      {
+        "date": "2026-01-25",
+        "type": "contribution",
+        "event": "ginzatron delivers Admin Portal spec — 272 lines of architecture",
+        "actors": ["ginzatron"]
+      },
+      {
+        "date": "2026-01-25",
+        "type": "merge",
+        "event": "STEF reviews and approves Admin Portal spec. chickensintrees merges PR #14.",
+        "actors": ["stef", "chickensintrees", "ginzatron"]
+      },
+      {
+        "date": "2026-01-25",
+        "type": "infrastructure",
+        "event": "Thunderdome narrative system created — the broadcast booth goes live",
+        "actors": ["chickensintrees", "stef"]
+      }
+    ]
+  },
+  "open_threads": {
+    "description": "Tensions and questions the commentators might reference",
+    "threads": [
+      "The Admin Portal spec is merged but not built. When does blueprint become reality?",
+      "13 issues in the backlog. Issue #8 (AI Message Processing) is the core. Everything orbits it.",
+      "Gamification is live but the metrics are evolving. What counts as value?"
+    ]
+  },
+  "last_session": {
+    "date": "2026-01-25",
+    "headline": "Admin Portal spec lands. Infrastructure sprint continues.",
+    "notable": "First PR merged via AI review (STEF)"
+  }
+}

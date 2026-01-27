@@ -16,71 +16,81 @@ struct AdminPortalView: View {
     @State private var searchText = ""
 
     var body: some View {
-        NavigationSplitView {
-            VStack(spacing: 0) {
-                // Tab Picker
-                Picker("View", selection: $selectedTab) {
-                    ForEach(AdminPortalTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+        VStack(spacing: 0) {
+            // Header with title and toolbar
+            adminHeader
+
+            Divider()
+
+            // Main content: list + detail
+            HStack(spacing: 0) {
+                // Left panel: list
+                VStack(spacing: 0) {
+                    // Tab Picker
+                    Picker("View", selection: $selectedTab) {
+                        ForEach(AdminPortalTab.allCases, id: \.self) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding()
+
+                    // Filter bar (for subscribers tab)
+                    if selectedTab == .subscribers {
+                        filterBar
+                    }
+
+                    // Search field
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("Search by name...", text: $searchText)
+                            .textFieldStyle(.plain)
+                    }
+                    .padding(8)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+
+                    Divider()
+
+                    // Content based on selected tab
+                    switch selectedTab {
+                    case .subscribers:
+                        SubscribersListView(
+                            statusFilter: statusFilter,
+                            tagFilter: tagFilter,
+                            searchText: searchText
+                        )
+                    case .subscriptions:
+                        SubscriptionsListView(searchText: searchText)
                     }
                 }
-                .pickerStyle(.segmented)
-                .padding()
-
-                // Filter bar (for subscribers tab)
-                if selectedTab == .subscribers {
-                    filterBar
-                }
+                .frame(width: 320)
 
                 Divider()
 
-                // Content based on selected tab
-                switch selectedTab {
-                case .subscribers:
-                    SubscribersListView(
-                        statusFilter: statusFilter,
-                        tagFilter: tagFilter,
-                        searchText: searchText
-                    )
-                case .subscriptions:
-                    SubscriptionsListView(searchText: searchText)
-                }
-            }
-            .frame(minWidth: 300)
-        } detail: {
-            if let connection = appState.selectedConnection {
-                ConnectionDetailView(connectionWithUser: connection, isOwnerView: selectedTab == .subscribers)
-            } else {
-                ContentUnavailableView(
-                    "Select a Connection",
-                    systemImage: "person.2",
-                    description: Text("Choose a connection from the list to view details")
-                )
-            }
-        }
-        .navigationTitle("Admin Portal")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItemGroup(placement: .primaryAction) {
-                if selectedTab == .subscribers {
-                    Button(action: { showTagManager = true }) {
-                        Image(systemName: "tag")
+                // Right panel: detail
+                if let connection = appState.selectedConnection {
+                    ConnectionDetailView(connectionWithUser: connection, isOwnerView: selectedTab == .subscribers)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.2")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text("Select a Connection")
+                            .font(.headline)
+                        Text("Choose a connection from the list to view details")
+                            .foregroundColor(.secondary)
                     }
-                    .help("Manage Tags")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(nsColor: .windowBackgroundColor))
                 }
-
-                Button(action: { showSubscribeSheet = true }) {
-                    Image(systemName: "person.badge.plus")
-                }
-                .help("Subscribe to User")
             }
         }
-        .searchable(text: $searchText, prompt: "Search by name...")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showTagManager) {
             TagManagerView()
         }
@@ -93,6 +103,39 @@ struct AdminPortalView: View {
         .onChange(of: selectedTab) { _, _ in
             appState.selectedConnection = nil
         }
+    }
+
+    private var adminHeader: some View {
+        HStack {
+            Button("Done") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+
+            Text("Admin Portal")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Spacer()
+
+            if selectedTab == .subscribers {
+                Button(action: { showTagManager = true }) {
+                    Image(systemName: "tag")
+                }
+                .buttonStyle(.bordered)
+                .help("Manage Tags")
+                .accessibilityLabel("Manage Tags")
+            }
+
+            Button(action: { showSubscribeSheet = true }) {
+                Image(systemName: "person.badge.plus")
+            }
+            .buttonStyle(.bordered)
+            .help("Subscribe to User")
+            .accessibilityLabel("Subscribe to User")
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var filterBar: some View {
@@ -151,26 +194,12 @@ struct AdminPortalView: View {
     }
 
     private func loadData() async {
-        async let _ = appState.loadSubscribers()
-        async let _ = appState.loadSubscriptions()
-        async let _ = appState.loadTags()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.appState.loadSubscribers() }
+            group.addTask { await self.appState.loadSubscriptions() }
+            group.addTask { await self.appState.loadTags() }
+        }
     }
 }
 
-// MARK: - Color Extension for Hex
-
-extension Color {
-    init?(hex: String) {
-        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        hexSanitized = hexSanitized.replacingOccurrences(of: "#", with: "")
-
-        var rgb: UInt64 = 0
-        guard Scanner(string: hexSanitized).scanHexInt64(&rgb) else { return nil }
-
-        let r = Double((rgb & 0xFF0000) >> 16) / 255.0
-        let g = Double((rgb & 0x00FF00) >> 8) / 255.0
-        let b = Double(rgb & 0x0000FF) / 255.0
-
-        self.init(red: r, green: g, blue: b)
-    }
-}
+// Color hex extension is now in DesignSystem.swift

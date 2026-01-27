@@ -1,0 +1,370 @@
+import SwiftUI
+import AppKit
+
+// Design tokens and user colors are now in DesignSystem.swift
+
+// MARK: - Dashboard View
+
+struct DashboardView: View {
+    @EnvironmentObject var viewModel: DashboardViewModel
+    @EnvironmentObject var gameVM: GamificationViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DashboardHeader()
+
+            ScrollView {
+                ViewThatFits(in: .horizontal) {
+                    // 3-column layout (needs ~900px)
+                    ThreeColumnDashboard()
+
+                    // 2-column layout (needs ~600px)
+                    TwoColumnDashboard()
+
+                    // Single column (always fits)
+                    SingleColumnDashboard()
+                }
+                .padding()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignTokens.bgPrimary)
+        .task {
+            // Process commits for scoring on initial load
+            await gameVM.processNewCommits(viewModel.commits, using: GitHubService.shared)
+        }
+        .onChange(of: viewModel.commits) { _, newCommits in
+            // Reprocess commits when refresh happens
+            Task {
+                await gameVM.processNewCommits(newCommits, using: GitHubService.shared)
+            }
+        }
+    }
+}
+
+// MARK: - Dashboard Layouts
+
+struct ThreeColumnDashboard: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(spacing: 16) {
+                ActivityPanel()
+                CommitsPanel()
+            }
+            .frame(minWidth: 280, maxWidth: .infinity)
+
+            VStack(spacing: 16) {
+                LeaderboardPanel()
+                CommentaryPanel()
+            }
+            .frame(minWidth: 280, maxWidth: .infinity)
+
+            VStack(spacing: 16) {
+                IssuesPanel()
+            }
+            .frame(minWidth: 200, maxWidth: .infinity)
+        }
+        .frame(minWidth: 860)
+    }
+}
+
+struct TwoColumnDashboard: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(spacing: 16) {
+                LeaderboardPanel()
+                ActivityPanel()
+                CommitsPanel()
+            }
+            .frame(minWidth: 280, maxWidth: .infinity)
+
+            VStack(spacing: 16) {
+                IssuesPanel()
+                CommentaryPanel()
+            }
+            .frame(minWidth: 200, maxWidth: .infinity)
+        }
+        .frame(minWidth: 540)
+    }
+}
+
+struct SingleColumnDashboard: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            LeaderboardPanel()
+            ActivityPanel()
+            CommitsPanel()
+            IssuesPanel()
+            CommentaryPanel()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Header
+
+struct DashboardHeader: View {
+    @EnvironmentObject var viewModel: DashboardViewModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.title2)
+                .foregroundColor(DesignTokens.accentPrimary)
+
+            Text("chickensintrees/async")
+                .font(.headline)
+                .foregroundColor(DesignTokens.textPrimary)
+
+            Button(action: {
+                viewModel.openInBrowser("https://github.com/chickensintrees/async")
+            }) {
+                Image(systemName: "arrow.up.right.square")
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open in GitHub")
+            .accessibilityHint("Opens the repository in your web browser")
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(viewModel.isConnected ? DesignTokens.accentGreen : DesignTokens.accentRed)
+                    .frame(width: 8, height: 8)
+                Text(viewModel.isConnected ? "Connected" : "Disconnected")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+
+            if let lastRefresh = viewModel.lastRefresh {
+                Text("Updated \(lastRefresh.relativeString)")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textMuted)
+            }
+
+            Button(action: {
+                Task { await viewModel.refreshAll() }
+            }) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isLoading)
+            .accessibilityLabel("Refresh")
+            .accessibilityHint("Refresh all dashboard data")
+        }
+        .padding()
+        .background(DesignTokens.bgSecondary)
+    }
+}
+
+// MARK: - Panels
+
+struct DashboardPanel<Content: View>: View {
+    let title: String
+    let icon: String
+    let badgeCount: Int?
+    let content: () -> Content
+
+    init(title: String, icon: String, badgeCount: Int? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.badgeCount = badgeCount
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundColor(DesignTokens.textSecondary)
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                if let count = badgeCount, count > 0 {
+                    Text("\(count)")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(DesignTokens.accentPrimary)
+                        .cornerRadius(4)
+                }
+
+                Spacer()
+            }
+
+            content()
+        }
+        .padding(12)
+        .background(DesignTokens.bgSecondary)
+        .cornerRadius(12)
+    }
+}
+
+// MARK: - Activity Panel
+
+struct ActivityPanel: View {
+    @EnvironmentObject var viewModel: DashboardViewModel
+    @EnvironmentObject var gameVM: GamificationViewModel
+
+    var body: some View {
+        DashboardPanel(title: "Score Events", icon: "bolt.fill") {
+            if gameVM.gameState.events.isEmpty {
+                Text("No scoring events yet")
+                    .font(.body)
+                    .foregroundColor(DesignTokens.textMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(gameVM.gameState.events.prefix(8)) { event in
+                        Button(action: {
+                            if let url = event.relatedUrl {
+                                viewModel.openInBrowser(url)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                UserIndicator(username: event.oderId)
+
+                                Text(event.description)
+                                    .font(.body)
+                                    .foregroundColor(event.points >= 0 ? DesignTokens.accentGreen : DesignTokens.accentRed)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                Text(event.timestamp.relativeString)
+                                    .font(.caption)
+                                    .foregroundColor(DesignTokens.textMuted)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Commits Panel
+
+struct CommitsPanel: View {
+    @EnvironmentObject var viewModel: DashboardViewModel
+
+    var body: some View {
+        DashboardPanel(title: "Recent Commits", icon: "arrow.triangle.merge") {
+            if viewModel.commits.isEmpty {
+                Text("No commits yet")
+                    .font(.body)
+                    .foregroundColor(DesignTokens.textMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(viewModel.commits.prefix(8)) { commit in
+                        Button(action: {
+                            viewModel.openInBrowser(commit.html_url)
+                        }) {
+                            HStack(spacing: 8) {
+                                Text(commit.shortSha)
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(DesignTokens.accentPrimary)
+
+                                Text(commit.shortMessage)
+                                    .font(.body)
+                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                UserIndicator(username: commit.authorLogin)
+
+                                Text(commit.date.relativeString)
+                                    .font(.caption)
+                                    .foregroundColor(DesignTokens.textMuted)
+                            }
+                            .padding(.vertical, 2)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Issues Panel
+
+struct IssuesPanel: View {
+    @EnvironmentObject var viewModel: DashboardViewModel
+
+    var body: some View {
+        DashboardPanel(title: "Issues", icon: "exclamationmark.circle", badgeCount: viewModel.openIssueCount) {
+            if viewModel.issues.isEmpty {
+                Text("No issues")
+                    .font(.body)
+                    .foregroundColor(DesignTokens.textMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(viewModel.issues.prefix(10)) { issue in
+                        Button(action: {
+                            viewModel.openInBrowser(issue.html_url)
+                        }) {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(issue.isOpen ? DesignTokens.accentGreen : DesignTokens.textMuted)
+                                    .frame(width: 8, height: 8)
+
+                                Text("#\(issue.number)")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(DesignTokens.textSecondary)
+
+                                Text(issue.title)
+                                    .font(.body)
+                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                if issue.comments > 0 {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "bubble.left")
+                                        Text("\(issue.comments)")
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(DesignTokens.textMuted)
+                                }
+
+                                UserIndicator(username: issue.user.login)
+                            }
+                            .padding(.vertical, 2)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - User Indicator
+
+struct UserIndicator: View {
+    let username: String
+
+    var body: some View {
+        Text(UserColors.initial(for: username))
+            .font(.system(size: 10, weight: .bold))
+            .foregroundColor(.white)
+            .frame(width: 20, height: 20)
+            .background(UserColors.forUser(username))
+            .cornerRadius(4)
+    }
+}

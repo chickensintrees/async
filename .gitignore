@@ -27,3 +27,9 @@ Package.resolved
 # Environment
 .env
 .env.local
+backend/supabase/.temp/
+app/Async.app/
+app/build/
+
+# Multi-agent coordination (local lock files)
+.agent-locks/
