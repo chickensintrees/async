@@ -21,8 +21,28 @@ if [[ ! -f "$PERSONALITY_DIR/identity.md" ]] || [[ ! -f "$PERSONALITY_DIR/memori
     exit 1
 fi
 
-# Concatenate identity and memories into backstory
-BACKSTORY=$(cat "$PERSONALITY_DIR/identity.md" "$PERSONALITY_DIR/memories.md")
+# Concatenate all personality files into backstory
+# Order: soul (meta) → identity (who) → memories (what happened) → origin (founding)
+BACKSTORY=""
+
+# Soul (optional but recommended)
+if [[ -f "$PERSONALITY_DIR/soul.md" ]]; then
+    BACKSTORY+=$(cat "$PERSONALITY_DIR/soul.md")
+    BACKSTORY+=$'\n\n---\n\n'
+fi
+
+# Identity (required)
+BACKSTORY+=$(cat "$PERSONALITY_DIR/identity.md")
+BACKSTORY+=$'\n\n---\n\n'
+
+# Memories (required)
+BACKSTORY+=$(cat "$PERSONALITY_DIR/memories.md")
+
+# Origin (optional - founding conversation)
+if [[ -f "$PERSONALITY_DIR/origin.md" ]]; then
+    BACKSTORY+=$'\n\n---\n\n'
+    BACKSTORY+=$(cat "$PERSONALITY_DIR/origin.md")
+fi
 
 # Write to temp file for jq
 TEMP_FILE=$(mktemp)
@@ -48,8 +68,10 @@ if echo "$RESPONSE" | grep -q "backstory"; then
     echo "✅ STEF identity synced! ($CHAR_COUNT characters)"
     echo ""
     echo "Files synced:"
+    [[ -f "$PERSONALITY_DIR/soul.md" ]] && echo "  - openspec/stef-personality/soul.md"
     echo "  - openspec/stef-personality/identity.md"
     echo "  - openspec/stef-personality/memories.md"
+    [[ -f "$PERSONALITY_DIR/origin.md" ]] && echo "  - openspec/stef-personality/origin.md"
 else
     echo "❌ Failed to sync identity:"
     echo "$RESPONSE"
