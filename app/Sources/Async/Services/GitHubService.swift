@@ -293,11 +293,19 @@ class DashboardViewModel: ObservableObject {
     var openIssueCount: Int { issues.filter { $0.isOpen }.count }
 
     init() {
-        Task {
-            await checkConnection()
-            await refreshAll()
-            startPolling()
+        // NOTE: DashboardViewModel is app-scoped (@StateObject in AsyncApp).
+        // Using [weak self] anyway for correctness if architecture changes.
+        Task { [weak self] in
+            guard let self else { return }
+            await self.checkConnection()
+            await self.refreshAll()
+            self.startPolling()
         }
+    }
+
+    deinit {
+        // Cancel all polling tasks on deallocation
+        tasks.values.forEach { $0.cancel() }
     }
 
     func checkConnection() async {

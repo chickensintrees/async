@@ -403,10 +403,7 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
             return title
         }
         // Generate a fallback based on mode and date
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .none
-        return "\(mode.displayName) - \(formatter.string(from: createdAt))"
+        return "\(mode.displayName) - \(Formatters.shortDate.string(from: createdAt))"
     }
 
     /// Whether this is a 1:1 direct message
@@ -499,9 +496,7 @@ struct ConversationWithDetails: Identifiable, Equatable, Hashable {
             let days = Int(diff / 86400)
             return "\(days)d"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMM d"
-            return formatter.string(from: date)
+            return Formatters.monthDay.string(from: date)
         }
     }
 

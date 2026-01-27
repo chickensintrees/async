@@ -5,7 +5,7 @@ import Supabase
 func memoryLog(_ source: String, _ message: String) {
     // Use /tmp since app might be sandboxed and can't write to home directory
     let logPath = URL(fileURLWithPath: "/tmp/async-memory-debug.log")
-    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let timestamp = Formatters.iso8601Now()
     let line = "[\(source)][\(timestamp)] \(message)\n"
     if let data = line.data(using: .utf8) {
         if FileManager.default.fileExists(atPath: logPath.path) {
@@ -956,7 +956,7 @@ class AppState: ObservableObject {
         do {
             try await supabase
                 .from("connections")
-                .update(["status": status.rawValue, "status_changed_at": ISO8601DateFormatter().string(from: Date())])
+                .update(["status": status.rawValue, "status_changed_at": Formatters.iso8601Now()])
                 .eq("id", value: connectionId.uuidString)
                 .execute()
 
