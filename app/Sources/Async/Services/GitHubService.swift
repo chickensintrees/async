@@ -351,9 +351,14 @@ class GitHubService {
         )
     }
 
-    /// Fetch all open issues (for Kanban board)
+    /// Fetch issues for Kanban board (open + recently closed)
     func fetchAllOpenIssues() async throws -> [KanbanIssue] {
-        try await fetch("repos/\(repo)/issues?state=open&per_page=100")
+        // Fetch both open and closed issues
+        // Open issues go to BACKLOG or IN PROGRESS (based on labels)
+        // Closed issues go to DONE
+        let openIssues: [KanbanIssue] = try await fetch("repos/\(repo)/issues?state=open&per_page=100")
+        let closedIssues: [KanbanIssue] = try await fetch("repos/\(repo)/issues?state=closed&per_page=30&sort=updated")
+        return openIssues + closedIssues
     }
 
     /// Create a label if it doesn't exist

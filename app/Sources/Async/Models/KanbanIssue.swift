@@ -44,6 +44,9 @@ struct KanbanIssue: Identifiable, Codable, Hashable {
     // MARK: - Computed Properties
 
     var column: KanbanColumn {
+        // Closed issues are always DONE (regardless of labels)
+        if state == "closed" { return .done }
+        // Open issues use labels to determine column
         if labels.contains(where: { $0.name == "done" }) { return .done }
         if labels.contains(where: { $0.name == "in-progress" }) { return .inProgress }
         return .backlog
