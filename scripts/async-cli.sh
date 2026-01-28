@@ -197,6 +197,9 @@ print(json.dumps({
     result=$(api "messages" "POST" "$msg_json")
 
     if echo "$result" | grep -q '"id"'; then
+        # Update conversation's last_message_at so it appears in cross-conversation context
+        local now=$(python3 -c "from datetime import datetime; print(datetime.utcnow().isoformat() + 'Z')")
+        api "conversations?id=eq.${conv_id}" "PATCH" "{\"last_message_at\": \"$now\"}" > /dev/null 2>&1
         echo -e "${GREEN}✓ Message sent (source: terminal)${NC}"
     else
         echo -e "${RED}Error sending message: $result${NC}"
