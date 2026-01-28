@@ -829,13 +829,28 @@ Write a session log to `~/.claude/session-logs/YYYY-MM-DD-topic.md` with:
 - Next steps
 - Files changed
 
-### 6. Confirm Safe to Close
+### 6. Test Coverage Check
+For each new file or significant change, ask:
+- Does this need new tests?
+- Shell scripts and SQL migrations don't need Swift tests
+- New Swift models/services with logic need tests
+- UI-only views don't need tests
+
+### 7. Kanban/Issue Sync
+Verify GitHub issues reflect reality:
+- Check issue states (open/closed)
+- Verify labels (backlog/in-progress)
+- Close completed issues
+- Create issues for discovered bugs
+
+### 8. Confirm Safe to Close
 Verify:
-- [ ] All tests passing (47/47)
+- [ ] All tests passing (102/102)
 - [ ] All changes committed and pushed
 - [ ] Documentation updated
 - [ ] Thunderdome shows clean status
 - [ ] Session log created
+- [ ] Kanban synced with GitHub
 
 ## Design Principles
 
