@@ -364,10 +364,9 @@ class GitHubService {
                     "-f", "title=\(title)",
                     "-f", "body=\(body)"]
 
-        if !labels.isEmpty {
-            // Labels need to be passed as JSON array
-            let labelsJson = labels.map { "\"\($0)\"" }.joined(separator: ",")
-            args.append(contentsOf: ["--raw-field", "labels=[\(labelsJson)]"])
+        // Labels are passed using array syntax: -f labels[]=label1 -f labels[]=label2
+        for label in labels {
+            args.append(contentsOf: ["-f", "labels[]=\(label)"])
         }
 
         let data = try await runProcess(arguments: args)
