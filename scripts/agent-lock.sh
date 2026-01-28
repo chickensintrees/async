@@ -68,18 +68,39 @@ case "$1" in
         file="$2"
         description="${3:-editing}"
         lock_file=$(get_lock_file "$file")
+        mutex_dir="${lock_file}.mutex"
+
+        # Use mkdir for atomic mutex (works on all POSIX systems including macOS)
+        # mkdir is atomic - only one process can create a directory
+        max_attempts=50
+        attempt=0
+        while ! mkdir "$mutex_dir" 2>/dev/null; do
+            attempt=$((attempt + 1))
+            if [[ $attempt -ge $max_attempts ]]; then
+                echo "ERROR: Could not acquire mutex after $max_attempts attempts"
+                exit 1
+            fi
+            sleep 0.1
+        done
+
+        # We have the mutex - now do the check-and-acquire atomically
+        cleanup_mutex() {
+            rmdir "$mutex_dir" 2>/dev/null
+        }
+        trap cleanup_mutex EXIT
 
         # Check if already locked by someone else
         if [[ -f "$lock_file" ]] && ! is_lock_stale "$lock_file"; then
             owner=$(jq -r '.agent' "$lock_file")
             if [[ "$owner" != "$AGENT_ID" ]]; then
                 echo "ERROR: File locked by $owner"
+                cleanup_mutex
                 exit 1
             fi
         fi
 
-        # Acquire lock
-        cat > "$lock_file" << EOF
+        # Acquire lock (atomic within mutex)
+        cat > "$lock_file" << LOCKEOF
 {
     "agent": "$AGENT_ID",
     "file": "$file",
@@ -87,27 +108,49 @@ case "$1" in
     "timestamp": $(date +%s),
     "acquired": "$(date -Iseconds)"
 }
-EOF
+LOCKEOF
         echo "ACQUIRED lock on $file"
+        cleanup_mutex
         exit 0
         ;;
 
     release)
         file="$2"
         lock_file=$(get_lock_file "$file")
+        mutex_dir="${lock_file}.mutex"
+
+        # Use mkdir for atomic mutex
+        max_attempts=50
+        attempt=0
+        while ! mkdir "$mutex_dir" 2>/dev/null; do
+            attempt=$((attempt + 1))
+            if [[ $attempt -ge $max_attempts ]]; then
+                echo "ERROR: Could not acquire mutex for release"
+                exit 1
+            fi
+            sleep 0.1
+        done
+
+        cleanup_mutex() {
+            rmdir "$mutex_dir" 2>/dev/null
+        }
+        trap cleanup_mutex EXIT
 
         if [[ -f "$lock_file" ]]; then
             owner=$(jq -r '.agent' "$lock_file")
             if [[ "$owner" == "$AGENT_ID" ]] || is_lock_stale "$lock_file"; then
                 rm "$lock_file"
                 echo "RELEASED lock on $file"
+                cleanup_mutex
                 exit 0
             else
                 echo "ERROR: Cannot release lock owned by $owner"
+                cleanup_mutex
                 exit 1
             fi
         fi
         echo "No lock to release"
+        cleanup_mutex
         exit 0
         ;;
 
