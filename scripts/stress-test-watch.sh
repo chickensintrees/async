@@ -134,19 +134,34 @@ echo
 echo -e "${YELLOW}▓▓▓ TEST 4: Message Response Deduplication ▓▓▓${NC}"
 echo "Checking if messages have idempotency keys..."
 
-# Check recent messages for any idempotency fields
-RECENT_MESSAGES=$(api "messages?select=id,source,metadata&limit=5&order=created_at.desc")
-HAS_METADATA=$(echo "$RECENT_MESSAGES" | python3 -c "
+# Check recent messages for any idempotency fields (in agent_context)
+RECENT_MESSAGES=$(api "messages?select=id,source,agent_context&limit=5&order=created_at.desc&is_from_agent=eq.true")
+HAS_IDEMPOTENCY=$(echo "$RECENT_MESSAGES" | python3 -c "
 import sys, json
 msgs = json.load(sys.stdin)
-has_idempotency = any(m.get('metadata', {}).get('idempotency_key') for m in msgs if m.get('metadata'))
+has_idempotency = any(
+    m.get('agent_context', {}).get('idempotency_key')
+    for m in msgs
+    if m.get('agent_context')
+)
 print('yes' if has_idempotency else 'no')
 " 2>/dev/null || echo "no")
 
-if [ "$HAS_METADATA" = "yes" ]; then
-    echo -e "  ${GREEN}✓ Messages have idempotency keys${NC}"
+if [ "$HAS_IDEMPOTENCY" = "yes" ]; then
+    echo -e "  ${GREEN}✓ Agent messages have idempotency keys${NC}"
+    # Show a sample
+    echo "$RECENT_MESSAGES" | python3 -c "
+import sys, json
+msgs = json.load(sys.stdin)
+for m in msgs[:2]:
+    ctx = m.get('agent_context', {})
+    if ctx.get('idempotency_key'):
+        print(f'    Key: {ctx[\"idempotency_key\"][:30]}...')
+        print(f'    Source: {ctx.get(\"source_agent\", \"unknown\")}')
+        break
+" 2>/dev/null
 else
-    echo -e "  ${YELLOW}⚠ No idempotency keys found in recent messages${NC}"
+    echo -e "  ${YELLOW}⚠ No idempotency keys found in recent agent messages${NC}"
     echo "  Risk: Duplicate messages could be processed multiple times"
 fi
 echo

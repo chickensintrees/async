@@ -179,7 +179,8 @@ cmd_send() {
         exit 1
     fi
 
-    # Create message JSON with source: terminal
+    # Create message JSON with source: terminal and idempotency key
+    local idempotency_key=$(uuidgen | tr '[:upper:]' '[:lower:]')
     local msg_json=$(python3 -c "
 import json, uuid
 from datetime import datetime
@@ -190,7 +191,11 @@ print(json.dumps({
     'content_raw': '''$message''',
     'is_from_agent': True,
     'source': 'terminal',
-    'created_at': datetime.utcnow().isoformat() + 'Z'
+    'created_at': datetime.utcnow().isoformat() + 'Z',
+    'agent_context': {
+        'idempotency_key': '$idempotency_key',
+        'source_agent': 'terminal-stef'
+    }
 }))
 ")
 
@@ -331,16 +336,27 @@ cmd_status() {
 
 # Stop watch daemon
 cmd_stop() {
+    local leader_lock="$HOME/.async-watch-leader.lock"
+    local stopped=false
+
     if [ -f "$STATE_FILE" ]; then
         local pid=$(python3 -c "import json; print(json.load(open('$STATE_FILE')).get('watch_pid', ''))" 2>/dev/null)
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null
             echo -e "${GREEN}✓ Watch daemon stopped (PID: $pid)${NC}"
-        else
-            echo -e "${YELLOW}Watch daemon not running${NC}"
+            stopped=true
         fi
         rm -f "$STATE_FILE"
-    else
+    fi
+
+    # Also clean up leader lock
+    if [ -d "$leader_lock" ]; then
+        rm -rf "$leader_lock"
+        echo -e "${GREEN}✓ Leader lock released${NC}"
+        stopped=true
+    fi
+
+    if ! $stopped; then
         echo -e "${YELLOW}Watch daemon not running${NC}"
     fi
 }
@@ -506,7 +522,10 @@ cmd_respond() {
         return 1
     fi
 
-    # Insert response
+    # Generate idempotency key based on conversation (manual trigger)
+    local idempotency_key="manual-$(echo "$conv_id-$(date +%s)" | md5sum | cut -c1-16)"
+
+    # Insert response with idempotency key
     local msg_json=$(python3 -c "
 import json, uuid
 from datetime import datetime
@@ -517,7 +536,12 @@ print(json.dumps({
     'content_raw': '''$response''',
     'is_from_agent': True,
     'source': 'app',
-    'created_at': datetime.utcnow().isoformat() + 'Z'
+    'created_at': datetime.utcnow().isoformat() + 'Z',
+    'agent_context': {
+        'idempotency_key': '$idempotency_key',
+        'source_agent': 'terminal-stef',
+        'trigger': 'manual'
+    }
 }))
 ")
 
@@ -540,6 +564,20 @@ cmd_watch() {
 
     get_stef_id
 
+    # Pre-check for existing leader (before banner)
+    local leader_lock="$HOME/.async-watch-leader.lock"
+    if [ -d "$leader_lock" ]; then
+        local existing_pid=""
+        if [ -f "${leader_lock}/pid" ]; then
+            existing_pid=$(cat "${leader_lock}/pid" 2>/dev/null)
+        fi
+        if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+            echo -e "${RED}ERROR: Another watch daemon is already running (PID: $existing_pid)${NC}"
+            echo -e "  Run './scripts/async-cli.sh stop' first"
+            exit 1
+        fi
+    fi
+
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
     echo -e "${CYAN}  STEF WATCH MODE${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
@@ -551,6 +589,8 @@ cmd_watch() {
         echo -e "${YELLOW}Starting in background...${NC}"
         nohup "$0" watch_loop > /dev/null 2>&1 &
         local pid=$!
+        # Wait briefly for the background process to acquire leader lock
+        sleep 0.5
         python3 -c "
 import json
 with open('$STATE_FILE', 'w') as f:
@@ -565,9 +605,49 @@ with open('$STATE_FILE', 'w') as f:
     watch_loop
 }
 
-# Internal: watch loop
+# Internal: watch loop with single-leader election
 watch_loop() {
     get_stef_id
+
+    # Single-leader election using mkdir mutex
+    local leader_lock="$HOME/.async-watch-leader.lock"
+
+    # Check if another watcher is already running
+    if [ -d "$leader_lock" ]; then
+        # Check if the process is still alive
+        local existing_pid=""
+        if [ -f "${leader_lock}/pid" ]; then
+            existing_pid=$(cat "${leader_lock}/pid" 2>/dev/null)
+        fi
+
+        if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+            echo -e "${RED}ERROR: Another watch daemon is already running (PID: $existing_pid)${NC}"
+            echo -e "  Run './scripts/async-cli.sh stop' first, or kill PID $existing_pid"
+            exit 1
+        else
+            # Stale lock - remove it
+            echo -e "${YELLOW}Removing stale leader lock...${NC}"
+            rm -rf "$leader_lock"
+        fi
+    fi
+
+    # Try to acquire leader lock (atomic mkdir)
+    if ! mkdir "$leader_lock" 2>/dev/null; then
+        echo -e "${RED}ERROR: Could not acquire leader lock (race condition)${NC}"
+        exit 1
+    fi
+
+    # Write our PID to the lock
+    echo $$ > "${leader_lock}/pid"
+
+    # Cleanup function to release leader lock
+    cleanup_leader() {
+        rm -rf "$leader_lock" 2>/dev/null
+        echo -e "\n${YELLOW}Released leader lock${NC}"
+    }
+    trap "cleanup_leader; exit 0" INT TERM EXIT
+
+    echo -e "${GREEN}✓ Acquired leader lock (PID: $$)${NC}"
 
     local last_checked=$(python3 -c "from datetime import datetime, timedelta; print((datetime.utcnow() - timedelta(seconds=10)).isoformat() + 'Z')")
 
@@ -590,7 +670,7 @@ with open('$STATE_FILE', 'w') as f:
         # Get new messages from humans since last check
         local new_messages=$(api "messages?created_at=gt.${last_checked}&is_from_agent=eq.false&select=id,conversation_id,content_raw,sender:users!messages_sender_id_fkey(display_name),created_at&order=created_at.asc")
 
-        # Process each new message
+        # Process each new message (now includes message ID for idempotency)
         echo "$new_messages" | python3 -c "
 import sys, json
 
@@ -605,15 +685,26 @@ messages = json.load(sys.stdin)
 for m in messages:
     conv_id = m.get('conversation_id', '')
     if conv_id in stef_convos:
+        msg_id = m.get('id', '')
         sender = (m.get('sender') or {}).get('display_name', 'User')
         content = m.get('content_raw', '')[:50]
-        print(f'RESPOND|{conv_id}|{sender}|{content}')
-" 2>/dev/null | while IFS='|' read -r action conv_id sender content; do
+        print(f'RESPOND|{conv_id}|{msg_id}|{sender}|{content}')
+" 2>/dev/null | while IFS='|' read -r action conv_id trigger_msg_id sender content; do
             if [ "$action" = "RESPOND" ]; then
+                # Generate idempotency key based on triggering message
+                local idempotency_key="response-to-${trigger_msg_id}"
+
+                # Check if we already responded to this message (idempotency check)
+                local existing=$(api "messages?conversation_id=eq.${conv_id}&is_from_agent=eq.true&agent_context->>idempotency_key=eq.${idempotency_key}&select=id" 2>/dev/null)
+                if echo "$existing" | grep -q '"id"'; then
+                    echo -e "${YELLOW}[$(date +%H:%M:%S)]${NC} Already responded to ${trigger_msg_id:0:8}, skipping"
+                    continue
+                fi
+
                 echo -e "${BLUE}[$(date +%H:%M:%S)]${NC} New message from ${sender} in ${conv_id:0:8}..."
                 echo -e "  ${content}..."
 
-                # Generate and send response
+                # Generate and send response with idempotency key
                 local response=$(generate_response "$conv_id" "$content" "$sender")
                 if [ -n "$response" ]; then
                     local msg_json=$(python3 -c "
@@ -626,7 +717,12 @@ print(json.dumps({
     'content_raw': '''$response''',
     'is_from_agent': True,
     'source': 'app',
-    'created_at': datetime.utcnow().isoformat() + 'Z'
+    'created_at': datetime.utcnow().isoformat() + 'Z',
+    'agent_context': {
+        'idempotency_key': '$idempotency_key',
+        'trigger_message_id': '$trigger_msg_id',
+        'source_agent': 'terminal-stef-watch'
+    }
 }))
 ")
                     api "messages" "POST" "$msg_json" > /dev/null
