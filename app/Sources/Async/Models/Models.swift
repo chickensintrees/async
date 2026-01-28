@@ -632,8 +632,29 @@ struct Message: Codable, Identifiable, Equatable {
         contentRaw = try container.decode(String.self, forKey: .contentRaw)
         contentProcessed = try container.decodeIfPresent(String.self, forKey: .contentProcessed)
         isFromAgent = try container.decodeIfPresent(Bool.self, forKey: .isFromAgent) ?? false
-        // Handle both null and JSONB object for agent_context
-        agentContext = try container.decodeIfPresent(AgentContextData.self, forKey: .agentContext)
+
+        // Handle agent_context which can be:
+        // 1. null → nil
+        // 2. JSON object → decode directly as AgentContextData
+        // 3. JSON string containing JSON → decode string, then parse as AgentContextData
+        if container.contains(.agentContext) {
+            // First try decoding as AgentContextData directly (JSON object case)
+            if let data = try? container.decodeIfPresent(AgentContextData.self, forKey: .agentContext) {
+                agentContext = data
+            }
+            // Then try decoding as String and parsing (double-encoded JSON string case)
+            else if let jsonString = try? container.decodeIfPresent(String.self, forKey: .agentContext),
+                    let jsonData = jsonString.data(using: .utf8) {
+                let jsonDecoder = JSONDecoder()
+                jsonDecoder.keyDecodingStrategy = .convertFromSnakeCase
+                agentContext = try? jsonDecoder.decode(AgentContextData.self, from: jsonData)
+            } else {
+                agentContext = nil
+            }
+        } else {
+            agentContext = nil
+        }
+
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         processedAt = try container.decodeIfPresent(Date.self, forKey: .processedAt)
         rawVisibleTo = try container.decodeIfPresent([UUID].self, forKey: .rawVisibleTo)

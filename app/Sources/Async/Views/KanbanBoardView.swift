@@ -39,12 +39,33 @@ struct KanbanBoardView: View {
                 Text("\(viewModel.issues.count) issues")
                     .foregroundColor(.secondary)
 
-                Button(action: { Task { await viewModel.refresh() } }) {
-                    Image(systemName: "arrow.clockwise")
+                // Estimation progress
+                if viewModel.isEstimating, let progress = viewModel.estimationProgress {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text(progress)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
+                }
+
+                Button(action: { Task { await viewModel.refreshWithSync() } }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                        if viewModel.isLoading && !viewModel.isEstimating {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                        }
+                    }
                 }
                 .buttonStyle(.bordered)
                 .disabled(viewModel.isLoading)
-                .accessibilityLabel("Refresh issues")
+                .accessibilityLabel("Sync issues with AI estimation")
             }
             .padding()
 

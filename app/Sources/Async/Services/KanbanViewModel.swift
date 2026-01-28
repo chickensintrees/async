@@ -25,10 +25,14 @@ func logToFile(_ message: String) {
 class KanbanViewModel: ObservableObject {
     @Published var issues: [KanbanIssue] = []
     @Published var isLoading = false
+    @Published var isEstimating = false
+    @Published var estimationProgress: String?
     @Published var error: String?
     @Published var lastRefresh: Date?
 
     private let service = GitHubService.shared
+    private let estimator = StoryPointEstimator.shared
+    private let gamification = GamificationService.shared
 
     // MARK: - Computed Properties
 
@@ -172,6 +176,96 @@ class KanbanViewModel: ObservableObject {
 
     func refresh() async {
         await loadIssues()
+    }
+
+    /// Full refresh with AI estimation + gamification scoring
+    func refreshWithSync() async {
+        logToFile("Starting refreshWithSync...")
+        isLoading = true
+        isEstimating = false
+        estimationProgress = nil
+        error = nil
+
+        do {
+            // 1. Ensure all labels exist (workflow + story points)
+            logToFile("Ensuring labels exist...")
+            try await ensureLabelsExist()
+            try await service.ensureStoryPointLabelsExist()
+
+            // 2. Fetch issues
+            logToFile("Fetching issues...")
+            issues = try await service.fetchAllOpenIssues()
+            lastRefresh = Date()
+            logToFile("Fetched \(issues.count) issues")
+
+            // 3. Identify open issues without story points
+            let needsEstimation = issues.filter {
+                $0.storyPoints == nil && $0.column != .done
+            }
+            logToFile("Issues needing estimation: \(needsEstimation.count)")
+
+            // 4. Batch estimate with Claude if any need points
+            if !needsEstimation.isEmpty {
+                isEstimating = true
+                estimationProgress = "Estimating \(needsEstimation.count) issues..."
+
+                logToFile("Calling Claude for estimation...")
+                let estimates = try await estimator.estimateBatch(needsEstimation)
+                logToFile("Got estimates for \(estimates.count) issues")
+
+                // 5. Apply story point labels to GitHub
+                for (issueNumber, points) in estimates {
+                    estimationProgress = "Applying points to #\(issueNumber)..."
+                    try await service.setStoryPoints(issueNumber: issueNumber, points: points)
+                    logToFile("Set story points for #\(issueNumber): \(points)")
+                }
+
+                // 6. Re-fetch to get updated labels
+                estimationProgress = "Refreshing..."
+                issues = try await service.fetchAllOpenIssues()
+
+                isEstimating = false
+                estimationProgress = nil
+            }
+
+            // 7. Score closed issues for gamification
+            await scoreClosedIssues()
+
+        } catch {
+            logToFile("refreshWithSync error: \(error)")
+            self.error = error.localizedDescription
+            isEstimating = false
+            estimationProgress = nil
+        }
+
+        isLoading = false
+        logToFile("refreshWithSync complete")
+    }
+
+    /// Score any closed issues that haven't been scored yet
+    private func scoreClosedIssues() async {
+        logToFile("Scoring closed issues...")
+
+        do {
+            // Sync gamification state from Supabase first
+            await gamification.syncFromSupabase()
+
+            // Find unscored closed issues
+            let unscored = gamification.findUnscoredClosedIssues(issues)
+            logToFile("Found \(unscored.count) unscored closed issues")
+
+            for issue in unscored {
+                // Attribute to the issue creator (or current user as fallback)
+                let playerId = issue.user?.login ?? Config.currentUserGithubHandle
+
+                if let event = try await gamification.scoreClosedIssue(issue, forPlayer: playerId) {
+                    logToFile("Scored #\(issue.number): +\(event.points) pts")
+                }
+            }
+        } catch {
+            logToFile("Gamification scoring failed: \(error)")
+            // Don't fail the whole refresh for gamification errors
+        }
     }
 
     func openInBrowser(_ issue: KanbanIssue) {

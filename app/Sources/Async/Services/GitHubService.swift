@@ -377,6 +377,36 @@ class GitHubService {
         }
     }
 
+    // MARK: - Story Point Labels
+
+    /// Set story points for an issue (removes any existing story-points label first)
+    func setStoryPoints(issueNumber: Int, points: Int) async throws {
+        // First fetch current labels
+        let issue: KanbanIssue = try await fetch("repos/\(repo)/issues/\(issueNumber)")
+
+        // Remove any existing story-points labels
+        for label in issue.labels where label.name.hasPrefix("story-points:") {
+            try await removeLabel(issueNumber: issueNumber, label: label.name)
+        }
+
+        // Add new label
+        try await addLabel(issueNumber: issueNumber, label: "story-points:\(points)")
+    }
+
+    /// Ensure all story point labels exist (1, 2, 3, 5, 8, 13)
+    func ensureStoryPointLabelsExist() async throws {
+        let fibonacciPoints = [1, 2, 3, 5, 8, 13]
+        let colors = ["c2e0c6", "c5def5", "bfd4f2", "d4c5f9", "f9d0c4", "fef2c0"]
+
+        for (index, points) in fibonacciPoints.enumerated() {
+            try await createLabelIfNeeded(
+                name: "story-points:\(points)",
+                color: colors[index],
+                description: "\(points) story point\(points == 1 ? "" : "s")"
+            )
+        }
+    }
+
     // MARK: - Issue Operations (App STEF Write Access)
 
     /// Create a new issue
