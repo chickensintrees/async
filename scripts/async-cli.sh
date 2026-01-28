@@ -21,8 +21,8 @@ SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 # State file for watch daemon
 STATE_FILE="$HOME/.async-cli-state.json"
 
-# STEF's user ID (the agent in the database)
-STEF_USER_ID=""  # Will be populated by lookup
+# Terminal STEF's user ID (the terminal-side agent in the database)
+STEF_USER_ID=""  # Will be populated by lookup for "Terminal STEF"
 
 # Poll interval for watch mode (seconds)
 POLL_INTERVAL="${ASYNC_POLL_INTERVAL:-3}"
@@ -56,14 +56,14 @@ api() {
     fi
 }
 
-# Get STEF's user ID
+# Get Terminal STEF's user ID
 get_stef_id() {
     if [ -n "$STEF_USER_ID" ]; then
         return
     fi
-    STEF_USER_ID=$(api "users?display_name=eq.STEF&select=id" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
+    STEF_USER_ID=$(api "users?display_name=eq.Terminal%20STEF&select=id" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
     if [ -z "$STEF_USER_ID" ]; then
-        echo -e "${RED}Error: Could not find STEF user in database${NC}"
+        echo -e "${RED}Error: Could not find Terminal STEF user in database${NC}"
         exit 1
     fi
 }
