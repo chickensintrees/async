@@ -558,6 +558,43 @@ struct ConversationParticipant: Codable {
     }
 }
 
+// MARK: - Agent Context (for idempotency, tracking, AI processing metadata)
+
+struct AgentContextData: Codable, Equatable {
+    // Idempotency/tracking fields (from Terminal STEF)
+    var idempotencyKey: String?
+    var sourceAgent: String?
+    var triggerMessageId: String?
+    var trigger: String?
+
+    // AI processing fields (from App STEF mediation)
+    var summary: String?
+    var sentiment: String?
+    var actionItems: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case idempotencyKey = "idempotency_key"
+        case sourceAgent = "source_agent"
+        case triggerMessageId = "trigger_message_id"
+        case trigger
+        case summary
+        case sentiment
+        case actionItems = "action_items"
+    }
+
+    init(idempotencyKey: String? = nil, sourceAgent: String? = nil,
+         triggerMessageId: String? = nil, trigger: String? = nil,
+         summary: String? = nil, sentiment: String? = nil, actionItems: [String]? = nil) {
+        self.idempotencyKey = idempotencyKey
+        self.sourceAgent = sourceAgent
+        self.triggerMessageId = triggerMessageId
+        self.trigger = trigger
+        self.summary = summary
+        self.sentiment = sentiment
+        self.actionItems = actionItems
+    }
+}
+
 // MARK: - Message
 
 struct Message: Codable, Identifiable, Equatable {
@@ -567,7 +604,7 @@ struct Message: Codable, Identifiable, Equatable {
     let contentRaw: String
     let contentProcessed: String?
     let isFromAgent: Bool
-    let agentContext: String?  // JSON string
+    let agentContext: AgentContextData?  // Structured JSONB data
     let createdAt: Date
     let processedAt: Date?
     let rawVisibleTo: [UUID]?
@@ -585,6 +622,40 @@ struct Message: Codable, Identifiable, Equatable {
         case processedAt = "processed_at"
         case rawVisibleTo = "raw_visible_to"
         case attachments
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        conversationId = try container.decode(UUID.self, forKey: .conversationId)
+        senderId = try container.decodeIfPresent(UUID.self, forKey: .senderId)
+        contentRaw = try container.decode(String.self, forKey: .contentRaw)
+        contentProcessed = try container.decodeIfPresent(String.self, forKey: .contentProcessed)
+        isFromAgent = try container.decodeIfPresent(Bool.self, forKey: .isFromAgent) ?? false
+        // Handle both null and JSONB object for agent_context
+        agentContext = try container.decodeIfPresent(AgentContextData.self, forKey: .agentContext)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        processedAt = try container.decodeIfPresent(Date.self, forKey: .processedAt)
+        rawVisibleTo = try container.decodeIfPresent([UUID].self, forKey: .rawVisibleTo)
+        attachments = try container.decodeIfPresent([MessageAttachment].self, forKey: .attachments)
+    }
+
+    init(id: UUID, conversationId: UUID, senderId: UUID?, contentRaw: String,
+         contentProcessed: String? = nil, isFromAgent: Bool = false,
+         agentContext: AgentContextData? = nil, createdAt: Date = Date(),
+         processedAt: Date? = nil, rawVisibleTo: [UUID]? = nil,
+         attachments: [MessageAttachment]? = nil) {
+        self.id = id
+        self.conversationId = conversationId
+        self.senderId = senderId
+        self.contentRaw = contentRaw
+        self.contentProcessed = contentProcessed
+        self.isFromAgent = isFromAgent
+        self.agentContext = agentContext
+        self.createdAt = createdAt
+        self.processedAt = processedAt
+        self.rawVisibleTo = rawVisibleTo
+        self.attachments = attachments
     }
 
     /// Returns the content to display based on conversation mode and viewer

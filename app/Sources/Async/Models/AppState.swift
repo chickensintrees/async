@@ -539,7 +539,7 @@ class AppState: ObservableObject {
 
         do {
             var processedContent: String? = nil
-            var agentContextJson: String? = nil
+            var agentContextData: AgentContextData? = nil
 
             // Upload attachments if any
             var uploadedAttachments: [MessageAttachment] = []
@@ -588,12 +588,13 @@ class AppState: ObservableObject {
                     processedContent = processed.content
 
                     // Store processing metadata as JSON
-                    var contextDict: [String: Any] = [:]
-                    if let summary = processed.summary { contextDict["summary"] = summary }
-                    if let sentiment = processed.sentiment { contextDict["sentiment"] = sentiment }
-                    if let actions = processed.actionItems { contextDict["action_items"] = actions }
-                    if !contextDict.isEmpty {
-                        agentContextJson = String(data: try JSONSerialization.data(withJSONObject: contextDict), encoding: .utf8)
+                    // Build agent context if we have any metadata
+                    if processed.summary != nil || processed.sentiment != nil || processed.actionItems != nil {
+                        agentContextData = AgentContextData(
+                            summary: processed.summary,
+                            sentiment: processed.sentiment,
+                            actionItems: processed.actionItems
+                        )
                     }
                 } catch {
                     // Log error but still send raw message
@@ -613,7 +614,7 @@ class AppState: ObservableObject {
                 contentRaw: content,
                 contentProcessed: processedContent,
                 isFromAgent: false,
-                agentContext: agentContextJson,
+                agentContext: agentContextData,
                 createdAt: Date(),
                 processedAt: processedContent != nil ? Date() : nil,
                 rawVisibleTo: nil,
