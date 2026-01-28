@@ -354,12 +354,21 @@ class MediatorService {
             excludeConversationId: conversationId
         )
 
+        // Load GitHub context for STEF (recent comments, mentioned issues)
+        var githubContext: GitHubContext? = nil
+        if agent.displayName.lowercased().contains("stef") {
+            let mentionedIssues = extractMentionedIssues(from: userMessage)
+            githubContext = await loadGitHubContext(mentionedIssues: mentionedIssues)
+            print("📚 [GitHub Context] Loaded \(githubContext?.recentComments.count ?? 0) comments, \(githubContext?.mentionedIssueDetails.count ?? 0) issue details")
+        }
+
         let systemPrompt = buildAgentSystemPrompt(
             for: agent,
             config: config,
             otherAgents: allAgents,
             memories: memories,
-            crossConversationContext: crossContext
+            crossConversationContext: crossContext,
+            githubContext: githubContext
         )
         let userPrompt = buildAgentUserPrompt(
             userMessage: userMessage,
@@ -980,6 +989,68 @@ class MediatorService {
                mentions.contains(agentName.replacingOccurrences(of: " ", with: ""))
     }
 
+    // MARK: - GitHub Context Loading
+
+    struct GitHubContext {
+        let recentComments: [(issueNumber: Int, author: String, body: String, date: Date)]
+        let mentionedIssueDetails: [(number: Int, title: String, body: String?)]
+    }
+
+    /// Load recent GitHub activity for agent context
+    /// Fetches comments from coordination issue (#28) and any specifically mentioned issues
+    private func loadGitHubContext(mentionedIssues: [Int] = []) async -> GitHubContext {
+        var recentComments: [(issueNumber: Int, author: String, body: String, date: Date)] = []
+        var issueDetails: [(number: Int, title: String, body: String?)] = []
+
+        // Fetch recent comments from coordination issue (#28) - cross-instance messages
+        do {
+            let comments = try await GitHubService.shared.fetchIssueComments(issueNumber: 28)
+            for comment in comments.suffix(5) {  // Last 5 comments
+                recentComments.append((28, comment.user.login, comment.body, comment.created_at))
+            }
+        } catch {
+            print("⚠️ [GitHub Context] Could not fetch #28 comments: \(error)")
+        }
+
+        // Fetch details for any specifically mentioned issues
+        for issueNum in mentionedIssues {
+            do {
+                let details = try await GitHubService.shared.fetchIssueDetails(issueNumber: issueNum)
+                issueDetails.append((details.number, details.title, details.body))
+
+                // Also get recent comments on mentioned issues
+                let comments = try await GitHubService.shared.fetchIssueComments(issueNumber: issueNum)
+                for comment in comments.suffix(3) {  // Last 3 comments per issue
+                    recentComments.append((issueNum, comment.user.login, comment.body, comment.created_at))
+                }
+            } catch {
+                print("⚠️ [GitHub Context] Could not fetch #\(issueNum): \(error)")
+            }
+        }
+
+        return GitHubContext(recentComments: recentComments, mentionedIssueDetails: issueDetails)
+    }
+
+    /// Extract issue numbers mentioned in a message (e.g., "#33" or "issue 33")
+    private func extractMentionedIssues(from message: String) -> [Int] {
+        let pattern = "#(\\d+)|issue\\s+(\\d+)"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return []
+        }
+        let range = NSRange(message.startIndex..., in: message)
+        let matches = regex.matches(in: message, options: [], range: range)
+        return matches.compactMap { match in
+            // Try group 1 (#N) then group 2 (issue N)
+            if let range = Range(match.range(at: 1), in: message), let num = Int(message[range]) {
+                return num
+            }
+            if let range = Range(match.range(at: 2), in: message), let num = Int(message[range]) {
+                return num
+            }
+            return nil
+        }
+    }
+
     // MARK: - System Prompt Building
 
     private func buildAgentSystemPrompt(
@@ -987,7 +1058,8 @@ class MediatorService {
         config: AgentConfig?,
         otherAgents: [User],
         memories: [AgentMemory] = [],
-        crossConversationContext: [CrossConversationContext] = []
+        crossConversationContext: [CrossConversationContext] = [],
+        githubContext: GitHubContext? = nil
     ) -> String {
         // Use config from database if available
         var prompt = config?.systemPrompt ?? buildDefaultPrompt(for: agent)
@@ -1069,6 +1141,34 @@ class MediatorService {
             prompt += "\n\n---"
             prompt += "\nBe discrete: Don't volunteer that you know things from other conversations"
             prompt += "\nunless it's genuinely helpful and contextually appropriate."
+        }
+
+        // Add GitHub context for STEF (recent activity, issue details)
+        if agent.displayName.lowercased().contains("stef"), let ghContext = githubContext {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MMM d, h:mm a"
+
+            // Add mentioned issue details
+            if !ghContext.mentionedIssueDetails.isEmpty {
+                prompt += "\n\nGITHUB ISSUE DETAILS:"
+                for issue in ghContext.mentionedIssueDetails {
+                    prompt += "\n\n#\(issue.number): \(issue.title)"
+                    if let body = issue.body, !body.isEmpty {
+                        prompt += "\n\(body.prefix(500))"
+                        if body.count > 500 { prompt += "..." }
+                    }
+                }
+            }
+
+            // Add recent comments (cross-instance messages)
+            if !ghContext.recentComments.isEmpty {
+                prompt += "\n\nRECENT GITHUB COMMENTS (from Terminal STEF or others):"
+                for comment in ghContext.recentComments {
+                    let dateStr = dateFormatter.string(from: comment.date)
+                    prompt += "\n[\(dateStr)] #\(comment.issueNumber) - \(comment.author): \(comment.body.prefix(200))"
+                    if comment.body.count > 200 { prompt += "..." }
+                }
+            }
         }
 
         // Add GitHub capabilities for STEF
