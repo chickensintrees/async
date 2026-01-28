@@ -118,31 +118,148 @@ class GitHubService {
     }
 
     func fetch<T: Decodable>(_ endpoint: String) async throws -> T {
-        let process = Process()
-        let pipe = Pipe()
-        let errorPipe = Pipe()
+        let data = try await runProcess(arguments: ["api", endpoint])
 
-        process.executableURL = URL(fileURLWithPath: ghPath)
-        process.arguments = ["api", endpoint]
-        process.standardOutput = pipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
-                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        // Debug: log raw response to file
+        if let rawString = String(data: data, encoding: .utf8) {
+            logGitHub("Response for \(endpoint) (\(data.count) bytes): \(rawString.prefix(300))...")
         }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        return try decoder.decode(T.self, from: data)
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            logGitHub("Decode error for \(T.self): \(error)")
+            throw error
+        }
+    }
+
+    private func logGitHub(_ message: String) {
+        let logPath = "/tmp/async-kanban.log"
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let logLine = "[GitHub \(timestamp)] \(message)\n"
+        if let data = logLine.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logPath) {
+                if let handle = FileHandle(forWritingAtPath: logPath) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                try? data.write(to: URL(fileURLWithPath: logPath))
+            }
+        }
+    }
+
+    /// Run gh CLI process asynchronously with timeout
+    private func runProcess(arguments: [String], timeout: TimeInterval = 30) async throws -> Data {
+        logGitHub("runProcess starting: \(arguments.joined(separator: " "))")
+
+        // Use temp files instead of pipes to avoid buffer deadlock with large outputs
+        let tempDir = FileManager.default.temporaryDirectory
+        let stdoutFile = tempDir.appendingPathComponent("gh-stdout-\(UUID().uuidString)")
+        let stderrFile = tempDir.appendingPathComponent("gh-stderr-\(UUID().uuidString)")
+
+        // Create empty files
+        FileManager.default.createFile(atPath: stdoutFile.path, contents: nil)
+        FileManager.default.createFile(atPath: stderrFile.path, contents: nil)
+
+        defer {
+            try? FileManager.default.removeItem(at: stdoutFile)
+            try? FileManager.default.removeItem(at: stderrFile)
+        }
+
+        // Run on background thread to avoid blocking main actor
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async { [ghPath] in
+                let process = Process()
+
+                process.executableURL = URL(fileURLWithPath: ghPath)
+                process.arguments = arguments
+
+                // Use file handles for output to avoid pipe buffer limits
+                guard let stdoutHandle = FileHandle(forWritingAtPath: stdoutFile.path),
+                      let stderrHandle = FileHandle(forWritingAtPath: stderrFile.path) else {
+                    self.logGitHub("Failed to create output files")
+                    continuation.resume(throwing: NSError(
+                        domain: "GitHubService",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Failed to create output files"]
+                    ))
+                    return
+                }
+
+                process.standardOutput = stdoutHandle
+                process.standardError = stderrHandle
+
+                // Set up environment - gh CLI needs HOME to find its config
+                var env = ProcessInfo.processInfo.environment
+                env["HOME"] = NSHomeDirectory()
+                env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+                process.environment = env
+
+                self.logGitHub("Process configured with temp files")
+
+                // Set up timeout
+                var timedOut = false
+                let timeoutWorkItem = DispatchWorkItem {
+                    timedOut = true
+                    self.logGitHub("TIMEOUT after \(timeout)s for: \(arguments.joined(separator: " "))")
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
+
+                do {
+                    try process.run()
+                    self.logGitHub("Process running...")
+                    process.waitUntilExit()
+                    timeoutWorkItem.cancel()
+
+                    try? stdoutHandle.close()
+                    try? stderrHandle.close()
+
+                    self.logGitHub("Process exited with status: \(process.terminationStatus)")
+
+                    if timedOut {
+                        continuation.resume(throwing: NSError(
+                            domain: "GitHubService",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Process timed out after \(timeout)s"]
+                        ))
+                        return
+                    }
+
+                    // Read output from temp files
+                    let outputData = (try? Data(contentsOf: stdoutFile)) ?? Data()
+                    let errorData = (try? Data(contentsOf: stderrFile)) ?? Data()
+
+                    self.logGitHub("Read \(outputData.count) bytes from stdout file")
+
+                    guard process.terminationStatus == 0 else {
+                        let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                        self.logGitHub("Process failed: \(errorMessage)")
+                        continuation.resume(throwing: NSError(
+                            domain: "GitHubService",
+                            code: Int(process.terminationStatus),
+                            userInfo: [NSLocalizedDescriptionKey: errorMessage]
+                        ))
+                        return
+                    }
+
+                    continuation.resume(returning: outputData)
+                } catch {
+                    timeoutWorkItem.cancel()
+                    try? stdoutHandle.close()
+                    try? stderrHandle.close()
+                    self.logGitHub("Process error: \(error)")
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     func fetchCommits() async throws -> [Commit] {
@@ -163,16 +280,9 @@ class GitHubService {
     }
 
     func checkAuth() async -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ghPath)
-        process.arguments = ["auth", "status"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
         do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
+            _ = try await runProcess(arguments: ["auth", "status"], timeout: 10)
+            return true
         } catch {
             return false
         }
@@ -182,12 +292,6 @@ class GitHubService {
 
     /// Execute a GitHub API request with a specific HTTP method
     func execute(_ endpoint: String, method: String, body: [String: Any]? = nil) async throws {
-        let process = Process()
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ghPath)
-
         var args = ["api", endpoint, "-X", method]
         if let body = body {
             for (key, value) in body {
@@ -195,19 +299,7 @@ class GitHubService {
                 args.append("\(key)=\(value)")
             }
         }
-        process.arguments = args
-        process.standardOutput = pipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
-                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
-        }
+        _ = try await runProcess(arguments: args)
     }
 
     /// Add a label to an issue
@@ -250,17 +342,11 @@ class GitHubService {
     /// Create a label if it doesn't exist
     func createLabelIfNeeded(name: String, color: String, description: String) async throws {
         // Try to get the label first
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ghPath)
-        process.arguments = ["api", "repos/\(repo)/labels/\(name)"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
-        process.waitUntilExit()
-
-        // If label doesn't exist (404), create it
-        if process.terminationStatus != 0 {
+        do {
+            _ = try await runProcess(arguments: ["api", "repos/\(repo)/labels/\(name)"], timeout: 10)
+            // Label exists, nothing to do
+        } catch {
+            // Label doesn't exist (404), create it
             try await execute(
                 "repos/\(repo)/labels",
                 method: "POST",
@@ -274,12 +360,6 @@ class GitHubService {
     /// Create a new issue
     /// Returns the issue number of the created issue
     func createIssue(title: String, body: String, labels: [String] = []) async throws -> Int {
-        let process = Process()
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ghPath)
-
         var args = ["api", "repos/\(repo)/issues", "-X", "POST",
                     "-f", "title=\(title)",
                     "-f", "body=\(body)"]
@@ -290,22 +370,8 @@ class GitHubService {
             args.append(contentsOf: ["--raw-field", "labels=[\(labelsJson)]"])
         }
 
-        process.arguments = args
-        process.standardOutput = pipe
-        process.standardError = errorPipe
+        let data = try await runProcess(arguments: args)
 
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
-                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
-        }
-
-        // Parse response to get issue number
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
@@ -330,42 +396,30 @@ class GitHubService {
 
     /// Get file contents and SHA (needed for updates)
     private func getFileInfo(path: String, branch: String = "main") async throws -> (content: String, sha: String)? {
-        let process = Process()
-        let pipe = Pipe()
-        let errorPipe = Pipe()
+        do {
+            let data = try await runProcess(arguments: ["api", "repos/\(repo)/contents/\(path)?ref=\(branch)"], timeout: 15)
 
-        process.executableURL = URL(fileURLWithPath: ghPath)
-        process.arguments = ["api", "repos/\(repo)/contents/\(path)?ref=\(branch)"]
-        process.standardOutput = pipe
-        process.standardError = errorPipe
+            struct FileContent: Decodable {
+                let content: String
+                let sha: String
+            }
 
-        try process.run()
-        process.waitUntilExit()
+            let decoder = JSONDecoder()
+            let fileContent = try decoder.decode(FileContent.self, from: data)
 
-        // 404 means file doesn't exist - that's OK for new files
-        if process.terminationStatus != 0 {
+            // Content is base64 encoded with newlines
+            let cleanedBase64 = fileContent.content.replacingOccurrences(of: "\n", with: "")
+            guard let decoded = Data(base64Encoded: cleanedBase64),
+                  let content = String(data: decoded, encoding: .utf8) else {
+                throw NSError(domain: "GitHubService", code: -1,
+                             userInfo: [NSLocalizedDescriptionKey: "Failed to decode file content"])
+            }
+
+            return (content, fileContent.sha)
+        } catch {
+            // 404 means file doesn't exist - that's OK for new files
             return nil
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-        struct FileContent: Decodable {
-            let content: String
-            let sha: String
-        }
-
-        let decoder = JSONDecoder()
-        let fileContent = try decoder.decode(FileContent.self, from: data)
-
-        // Content is base64 encoded with newlines
-        let cleanedBase64 = fileContent.content.replacingOccurrences(of: "\n", with: "")
-        guard let decoded = Data(base64Encoded: cleanedBase64),
-              let content = String(data: decoded, encoding: .utf8) else {
-            throw NSError(domain: "GitHubService", code: -1,
-                         userInfo: [NSLocalizedDescriptionKey: "Failed to decode file content"])
-        }
-
-        return (content, fileContent.sha)
     }
 
     /// Update or create a file in the repository
@@ -375,12 +429,6 @@ class GitHubService {
     ///   - message: Commit message
     ///   - branch: Target branch (default: main)
     func updateFileContents(path: String, content: String, message: String, branch: String = "main") async throws {
-        let process = Process()
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ghPath)
-
         // Base64 encode the content
         guard let contentData = content.data(using: .utf8) else {
             throw NSError(domain: "GitHubService", code: -1,
@@ -398,19 +446,7 @@ class GitHubService {
             args.append(contentsOf: ["-f", "sha=\(fileInfo.sha)"])
         }
 
-        process.arguments = args
-        process.standardOutput = pipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "GitHubService", code: Int(process.terminationStatus),
-                         userInfo: [NSLocalizedDescriptionKey: errorMessage])
-        }
+        _ = try await runProcess(arguments: args)
     }
 
     /// Read a file from the repository

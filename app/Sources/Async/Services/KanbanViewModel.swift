@@ -1,6 +1,24 @@
 import Foundation
 import SwiftUI
 
+// Debug logging to file (since stdout is buffered in GUI apps)
+func logToFile(_ message: String) {
+    let logPath = "/tmp/async-kanban.log"
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let logLine = "[\(timestamp)] \(message)\n"
+    if let data = logLine.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: logPath) {
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            }
+        } else {
+            try? data.write(to: URL(fileURLWithPath: logPath))
+        }
+    }
+}
+
 // MARK: - Kanban View Model
 
 @MainActor
@@ -40,21 +58,42 @@ class KanbanViewModel: ObservableObject {
     // MARK: - Loading
 
     func loadIssues() async {
+        logToFile("Starting loadIssues...")
         isLoading = true
         error = nil
 
         do {
             // Ensure required labels exist
+            logToFile("Ensuring labels exist...")
             try await ensureLabelsExist()
+            logToFile("Labels OK, fetching issues...")
 
             // Fetch all open issues
             issues = try await service.fetchAllOpenIssues()
+            logToFile("Fetched \(issues.count) issues")
             lastRefresh = Date()
+        } catch let decodingError as DecodingError {
+            logToFile("Decoding error: \(decodingError)")
+            switch decodingError {
+            case .keyNotFound(let key, let context):
+                self.error = "Missing key '\(key.stringValue)' at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            case .typeMismatch(let type, let context):
+                self.error = "Type mismatch: expected \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            case .valueNotFound(let type, let context):
+                self.error = "Value not found: \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            case .dataCorrupted(let context):
+                self.error = "Data corrupted at \(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
+            @unknown default:
+                self.error = decodingError.localizedDescription
+            }
+            logToFile("Error set to: \(self.error ?? "nil")")
         } catch {
-            self.error = error.localizedDescription
+            logToFile("Other error: \(error)")
+            self.error = String(describing: error)
         }
 
         isLoading = false
+        logToFile("loadIssues complete, issues=\(issues.count), error=\(error ?? "none")")
     }
 
     private func ensureLabelsExist() async throws {
