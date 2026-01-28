@@ -137,7 +137,11 @@ echo ""
 # MAIN CHECKS
 # ══════════════════════════════════════════════════════════════════════════════
 
-cd /Users/BillMoore/async
+# Determine repo root (script lives in scripts/, so go up one level)
+SCRIPT_DIR_EARLY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR_EARLY")"
+
+cd "$REPO_ROOT"
 
 # Track warnings
 WARNINGS=()
