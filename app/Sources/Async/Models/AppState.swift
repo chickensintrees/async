@@ -747,6 +747,18 @@ class AppState: ObservableObject {
                 print("📋 [AppState] Stored \(response.actions.count) pending action(s) for message \(messageId)")
             }
 
+            // Execute cross-conversation messages (tool use results)
+            if !response.crossConversationMessages.isEmpty {
+                print("🧠 [AppState] Sending \(response.crossConversationMessages.count) cross-conversation message(s)")
+                for crossMsg in response.crossConversationMessages {
+                    await sendCrossConversationMessage(
+                        from: agent,
+                        to: crossMsg.targetConversationId,
+                        content: crossMsg.content
+                    )
+                }
+            }
+
             // Create the agent's message
             let agentMessage = Message(
                 id: messageId,
@@ -844,6 +856,43 @@ class AppState: ObservableObject {
             await MainActor.run {
                 errorMessage = "GitHub action failed: \(error.localizedDescription)"
             }
+        }
+    }
+
+    // MARK: - Cross-Conversation Messaging
+
+    /// Send a message from an agent to a different conversation
+    private func sendCrossConversationMessage(
+        from agent: User,
+        to conversationId: UUID,
+        content: String
+    ) async {
+        do {
+            let message = Message(
+                id: UUID(),
+                conversationId: conversationId,
+                senderId: agent.id,
+                contentRaw: content,
+                contentProcessed: nil,
+                isFromAgent: true,
+                agentContext: AgentContextData(
+                    sourceAgent: "app-stef",
+                    trigger: "tool_use:send_to_corpus_callosum"
+                ),
+                createdAt: Date(),
+                processedAt: nil,
+                rawVisibleTo: nil,
+                attachments: nil
+            )
+
+            try await supabase
+                .from("messages")
+                .insert(message)
+                .execute()
+
+            print("🧠 [CrossConversation] Sent message to \(conversationId): \(content.prefix(50))...")
+        } catch {
+            print("❌ [CrossConversation] Failed to send: \(error.localizedDescription)")
         }
     }
 

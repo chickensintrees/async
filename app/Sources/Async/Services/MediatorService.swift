@@ -21,10 +21,26 @@ enum GitHubAction: Equatable {
     }
 }
 
+// MARK: - Cross-Conversation Messaging
+
+/// A message to send to a different conversation (via tool use)
+/// Named differently from CrossConversationMessage in Models.swift which is for inbound context
+struct OutboundCrossMessage: Equatable {
+    let targetConversationId: UUID
+    let content: String
+}
+
+/// Well-known conversation IDs for cross-conversation messaging
+enum KnownConversation {
+    /// The Corpus Callosum - inter-hemisphere coordination chat
+    static let corpusCallosum = UUID(uuidString: "e53c5600-6650-4520-908e-ddd77be908c8")!
+}
+
 /// Response from agent that may include proposed actions
 struct AgentResponseWithActions {
-    let text: String           // The response text (with action blocks stripped)
-    let actions: [GitHubAction] // Proposed actions to execute
+    let text: String                              // The response text
+    let actions: [GitHubAction]                   // Proposed GitHub actions to execute
+    let crossConversationMessages: [OutboundCrossMessage]  // Messages to send to other conversations
 }
 
 /// AI Mediator Service using Claude Sonnet for message processing
@@ -412,11 +428,30 @@ class MediatorService {
             messageContent = userPrompt
         }
 
+        // Define tools for cross-conversation messaging
+        let tools: [[String: Any]] = [
+            [
+                "name": "send_to_corpus_callosum",
+                "description": "Send a message to the Corpus Callosum thread - the shared coordination space between App STEF and Terminal STEF. Use this to @mention or communicate with Terminal STEF when coordination is needed.",
+                "input_schema": [
+                    "type": "object",
+                    "properties": [
+                        "message": [
+                            "type": "string",
+                            "description": "The message to send to the Corpus Callosum thread"
+                        ]
+                    ],
+                    "required": ["message"]
+                ]
+            ]
+        ]
+
         let requestBody: [String: Any] = [
             "model": model,
-            "max_tokens": 256,  // Shorter responses
+            "max_tokens": 512,  // Increased for tool use responses
             "temperature": temperature,
             "system": systemPrompt,
+            "tools": tools,
             "messages": [
                 ["role": "user", "content": messageContent]
             ]
@@ -445,14 +480,61 @@ class MediatorService {
             throw MediatorError.apiError(message)
         }
 
-        // Extract response text
-        guard let content = json["content"] as? [[String: Any]],
-              let first = content.first,
-              let text = first["text"] as? String else {
+        // Parse response content blocks (can include text and tool_use)
+        guard let contentBlocks = json["content"] as? [[String: Any]] else {
             throw MediatorError.invalidResponse
         }
 
-        return text
+        var responseText = ""
+        var crossMessages: [OutboundCrossMessage] = []
+
+        for block in contentBlocks {
+            guard let blockType = block["type"] as? String else { continue }
+
+            switch blockType {
+            case "text":
+                if let text = block["text"] as? String {
+                    responseText += text
+                }
+
+            case "tool_use":
+                // Handle tool calls
+                guard let toolName = block["name"] as? String,
+                      let toolInput = block["input"] as? [String: Any] else {
+                    continue
+                }
+
+                if toolName == "send_to_corpus_callosum",
+                   let message = toolInput["message"] as? String {
+                    print("🧠 [Tool Use] send_to_corpus_callosum: \(message.prefix(50))...")
+                    crossMessages.append(OutboundCrossMessage(
+                        targetConversationId: KnownConversation.corpusCallosum,
+                        content: message
+                    ))
+                }
+
+            default:
+                break
+            }
+        }
+
+        // Store cross-conversation messages for later execution
+        // We return them via a thread-local or pass through the response
+        if !crossMessages.isEmpty {
+            pendingOutboundCrossMessages = crossMessages
+        }
+
+        return responseText.isEmpty ? "(No response text)" : responseText
+    }
+
+    // Thread-local storage for cross-conversation messages from tool use
+    private var pendingOutboundCrossMessages: [OutboundCrossMessage] = []
+
+    /// Get and clear any pending cross-conversation messages from the last response
+    func popPendingOutboundCrossMessages() -> [OutboundCrossMessage] {
+        let messages = pendingOutboundCrossMessages
+        pendingOutboundCrossMessages = []
+        return messages
     }
 
     /// Generate agent response and parse any proposed GitHub actions
@@ -475,7 +557,18 @@ class MediatorService {
             attachments: attachments
         )
 
-        return parseActionsFromResponse(rawResponse)
+        // Get any cross-conversation messages from tool use
+        let crossMessages = popPendingOutboundCrossMessages()
+
+        // Parse GitHub actions from response text
+        var result = parseActionsFromResponse(rawResponse)
+
+        // Combine with cross-conversation messages
+        return AgentResponseWithActions(
+            text: result.text,
+            actions: result.actions,
+            crossConversationMessages: crossMessages
+        )
     }
 
     /// Parse action blocks from agent response
@@ -488,7 +581,7 @@ class MediatorService {
         let pattern = #"\[ACTION:(\w+)\]([\s\S]*?)\[/ACTION\]"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return AgentResponseWithActions(text: response, actions: [])
+            return AgentResponseWithActions(text: response, actions: [], crossConversationMessages: [])
         }
 
         let range = NSRange(response.startIndex..., in: response)
@@ -515,7 +608,7 @@ class MediatorService {
         // Clean up extra whitespace
         cleanedResponse = cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        return AgentResponseWithActions(text: cleanedResponse, actions: actions.reversed())
+        return AgentResponseWithActions(text: cleanedResponse, actions: actions.reversed(), crossConversationMessages: [])
     }
 
     /// Parse a single action from its type and content
