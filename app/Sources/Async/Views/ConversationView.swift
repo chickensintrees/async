@@ -753,6 +753,8 @@ struct MessageBubble: View {
             return "plus.circle"
         case .addComment:
             return "text.bubble"
+        case .readIssue:
+            return "doc.text.magnifyingglass"
         }
     }
 }

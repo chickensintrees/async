@@ -7,6 +7,7 @@ import Supabase
 enum GitHubAction: Equatable {
     case createIssue(title: String, body: String, labels: [String])
     case addComment(issueNumber: Int, body: String)
+    case readIssue(issueNumber: Int)  // Read issue details + comments
 
     var displayName: String {
         switch self {
@@ -14,6 +15,8 @@ enum GitHubAction: Equatable {
             return "Create Issue: \(title)"
         case .addComment(let number, _):
             return "Comment on #\(number)"
+        case .readIssue(let number):
+            return "Read Issue #\(number)"
         }
     }
 }

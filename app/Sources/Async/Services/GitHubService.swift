@@ -57,6 +57,23 @@ struct Issue: Codable, Identifiable {
     }
 }
 
+struct IssueComment: Codable, Identifiable {
+    let id: Int
+    let body: String
+    let user: GitHubUser
+    let created_at: Date
+}
+
+struct IssueDetails: Codable {
+    let number: Int
+    let title: String
+    let body: String?
+    let state: String
+    let user: GitHubUser
+    let created_at: Date
+    let labels: [Issue.Label]
+}
+
 struct RepoEvent: Codable, Identifiable {
     let id: String
     let type: String
@@ -389,6 +406,16 @@ class GitHubService {
             method: "POST",
             body: ["body": body]
         )
+    }
+
+    /// Fetch comments on an issue
+    func fetchIssueComments(issueNumber: Int) async throws -> [IssueComment] {
+        try await fetch("repos/\(repo)/issues/\(issueNumber)/comments")
+    }
+
+    /// Fetch full issue details including body
+    func fetchIssueDetails(issueNumber: Int) async throws -> IssueDetails {
+        try await fetch("repos/\(repo)/issues/\(issueNumber)")
     }
 
     // MARK: - File Operations (Contents API)

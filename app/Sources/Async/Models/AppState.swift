@@ -815,6 +815,15 @@ class AppState: ObservableObject {
             case .addComment(let issueNumber, let body):
                 try await GitHubService.shared.addComment(issueNumber: issueNumber, body: body)
                 print("✅ Added comment to issue #\(issueNumber)")
+
+            case .readIssue(let issueNumber):
+                let details = try await GitHubService.shared.fetchIssueDetails(issueNumber: issueNumber)
+                let comments = try await GitHubService.shared.fetchIssueComments(issueNumber: issueNumber)
+                print("📖 Issue #\(issueNumber): \(details.title)")
+                print("   Body: \(details.body ?? "(no body)")")
+                for comment in comments {
+                    print("   💬 \(comment.user.login): \(comment.body.prefix(100))...")
+                }
             }
 
             // Remove the executed action from pending
