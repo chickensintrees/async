@@ -1,5 +1,6 @@
 import SwiftUI
 import Supabase
+import Realtime
 
 // File-based debug logging for memory system (Swift print() doesn't show when app runs)
 func memoryLog(_ source: String, _ message: String) {
@@ -78,6 +79,11 @@ class AppState: ObservableObject {
     /// Pending GitHub actions from agent responses, keyed by message ID
     @Published var pendingActions: [UUID: [GitHubAction]] = [:]
 
+    // Realtime subscription for autonomous agent responses
+    private var realtimeTask: Task<Void, Never>?
+    private var recentlyRespondedMessages: Set<UUID> = []  // Debounce
+    private let responseDebounceSeconds: TimeInterval = 5.0
+
     private let supabase: SupabaseClient
 
     init() {
@@ -86,6 +92,168 @@ class AppState: ObservableObject {
             supabaseURL: URL(string: Config.supabaseURL)!,
             supabaseKey: Config.supabaseAnonKey
         )
+    }
+
+    // MARK: - Realtime Subscription for Autonomous Agent Responses
+
+    /// Start listening for messages that @mention App STEF across all conversations
+    func startRealtimeSubscription() {
+        guard realtimeTask == nil else {
+            memoryLog("Realtime", "Subscription already active")
+            return
+        }
+
+        memoryLog("Realtime", "Starting message subscription...")
+
+        realtimeTask = Task {
+            let channel = supabase.channel("app-stef-mentions")
+
+            let insertions = channel.postgresChange(
+                InsertAction.self,
+                schema: "public",
+                table: "messages"
+            )
+
+            do {
+                try await channel.subscribeWithError()
+                memoryLog("Realtime", "✅ Subscribed to messages table")
+            } catch {
+                memoryLog("Realtime", "❌ Subscription failed: \(error)")
+                return
+            }
+
+            memoryLog("Realtime", "Waiting for messages...")
+            for await insertion in insertions {
+                memoryLog("Realtime", "📨 Got insertion event")
+                await handleNewMessage(insertion.record)
+            }
+            memoryLog("Realtime", "Loop ended (should not happen)")
+        }
+    }
+
+    /// Stop the realtime subscription
+    func stopRealtimeSubscription() {
+        realtimeTask?.cancel()
+        realtimeTask = nil
+        print("🔔 [Realtime] Subscription stopped")
+    }
+
+    /// Handle a new message from realtime subscription
+    private func handleNewMessage(_ record: [String: AnyJSON]) async {
+        memoryLog("Realtime", "handleNewMessage called with record keys: \(record.keys.joined(separator: ", "))")
+
+        // Extract message details from the record
+        guard let messageIdStr = record["id"]?.stringValue,
+              let messageId = UUID(uuidString: messageIdStr),
+              let conversationIdStr = record["conversation_id"]?.stringValue,
+              let conversationId = UUID(uuidString: conversationIdStr),
+              let senderIdStr = record["sender_id"]?.stringValue,
+              let senderId = UUID(uuidString: senderIdStr),
+              let content = record["content_raw"]?.stringValue else {
+            memoryLog("Realtime", "❌ Could not parse message record")
+            // Log what we got for debugging
+            for (key, value) in record {
+                memoryLog("Realtime", "  \(key): \(value)")
+            }
+            return
+        }
+
+        let isFromAgent = record["is_from_agent"]?.boolValue ?? false
+
+        memoryLog("Realtime", "New message: \(content.prefix(50))... from \(senderIdStr.prefix(8))")
+
+        // Skip if we already responded to this message (debounce)
+        if recentlyRespondedMessages.contains(messageId) {
+            memoryLog("Realtime", "Already responded to \(messageId), skipping")
+            return
+        }
+
+        // Skip messages from App STEF herself (prevent loops)
+        if senderId == AppState.stefAgentId {
+            memoryLog("Realtime", "Message from self, skipping")
+            return
+        }
+
+        // Note: We respond even in the active conversation because STEF should
+        // always respond to @mentions. The user will see the response appear naturally.
+
+        // Check if App STEF is @mentioned
+        let stefUser = User(
+            id: AppState.stefAgentId,
+            githubHandle: "stef-ai",
+            displayName: "STEF",
+            email: nil,
+            phoneNumber: nil,
+            userType: .agent,
+            createdAt: Date()
+        )
+
+        guard MediatorService.shared.isAgentMentioned(stefUser, in: content) else {
+            memoryLog("Realtime", "STEF not @mentioned in: \(content.prefix(50)), skipping")
+            return
+        }
+
+        memoryLog("Realtime", "✅ STEF @mentioned! Generating autonomous response...")
+
+        // Mark as responded (debounce)
+        recentlyRespondedMessages.insert(messageId)
+
+        // Clean up old debounce entries after a delay
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(responseDebounceSeconds * 1_000_000_000))
+            recentlyRespondedMessages.remove(messageId)
+        }
+
+        // Load conversation and generate response
+        await generateAutonomousResponse(
+            toMessageContent: content,
+            inConversationId: conversationId,
+            fromSenderId: senderId,
+            isFromAgent: isFromAgent
+        )
+    }
+
+    /// Generate an autonomous response when App STEF is @mentioned
+    private func generateAutonomousResponse(
+        toMessageContent content: String,
+        inConversationId conversationId: UUID,
+        fromSenderId senderId: UUID,
+        isFromAgent: Bool
+    ) async {
+        // Load conversation details
+        guard let conversation = await loadConversation(byId: conversationId) else {
+            print("🔔 [Realtime] Could not load conversation \(conversationId)")
+            return
+        }
+
+        let conversationDetails = await loadConversationDetails(conversation, currentUserId: AppState.stefAgentId)
+
+        // Get sender name
+        let sender = await loadUser(byId: senderId)
+        let senderName = sender?.displayName ?? (isFromAgent ? "Agent" : "User")
+
+        // Load STEF as agent
+        guard let stefAgent = await loadUser(byId: AppState.stefAgentId) else {
+            print("🔔 [Realtime] Could not load STEF agent")
+            return
+        }
+
+        let allAgents = await loadAgents()
+
+        print("🔔 [Realtime] Generating response to '\(content.prefix(30))...' from \(senderName)")
+
+        // Generate and send response
+        await generateAndSendAgentResponse(
+            agent: stefAgent,
+            userMessage: content,
+            senderName: senderName,
+            conversation: conversation,
+            conversationDetails: conversationDetails,
+            allAgents: allAgents,
+            depth: 0
+        )
+
+        print("🔔 [Realtime] Autonomous response sent!")
     }
 
     // MARK: - Login/Logout (Simple Test Auth)
@@ -109,6 +277,7 @@ class AppState: ObservableObject {
             if let user = users.first {
                 self.currentUser = user
                 await loadConversations()
+                startRealtimeSubscription()  // Enable autonomous agent responses
                 print("✓ Logged in as: \(user.displayName) (@\(user.githubHandle ?? "unknown"))")
             } else {
                 errorMessage = "User not found: @\(githubHandle)"
@@ -119,6 +288,7 @@ class AppState: ObservableObject {
     }
 
     func logout() {
+        stopRealtimeSubscription()  // Clean up autonomous responses
         currentUser = nil
         conversations = []
         selectedConversation = nil
