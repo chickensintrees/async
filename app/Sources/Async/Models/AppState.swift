@@ -871,6 +871,7 @@ class AppState: ObservableObject {
     // MARK: - Cross-Conversation Messaging
 
     /// Send a message from an agent to a different conversation
+    /// Also triggers @mentioned agents to respond in the target conversation
     private func sendCrossConversationMessage(
         from agent: User,
         to conversationId: UUID,
@@ -900,8 +901,77 @@ class AppState: ObservableObject {
                 .execute()
 
             print("🧠 [CrossConversation] Sent message to \(conversationId): \(content.prefix(50))...")
+
+            // Trigger @mentioned agents in the target conversation
+            await triggerMentionedAgentsInConversation(
+                conversationId: conversationId,
+                messageContent: content,
+                senderAgent: agent
+            )
         } catch {
             print("❌ [CrossConversation] Failed to send: \(error.localizedDescription)")
+        }
+    }
+
+    /// Trigger responses from @mentioned agents in a conversation
+    private func triggerMentionedAgentsInConversation(
+        conversationId: UUID,
+        messageContent: String,
+        senderAgent: User
+    ) async {
+        // Load target conversation details
+        guard let conversation = await loadConversation(byId: conversationId) else {
+            print("❌ [CrossConversation] Could not load target conversation")
+            return
+        }
+
+        let conversationDetails = await loadConversationDetails(conversation, currentUserId: senderAgent.id)
+        let allAgents = await loadAgents()
+
+        // Find @mentioned agents (excluding sender and external agents)
+        let mentionedAgents = allAgents.filter { otherAgent in
+            otherAgent.id != senderAgent.id &&
+            !AppState.externalAgentIds.contains(otherAgent.id) &&
+            MediatorService.shared.isAgentMentioned(otherAgent, in: messageContent)
+        }
+
+        guard !mentionedAgents.isEmpty else {
+            print("🧠 [CrossConversation] No agents @mentioned in message")
+            return
+        }
+
+        print("🧠 [CrossConversation] Triggering responses from: \(mentionedAgents.map { $0.displayName })")
+
+        // Generate responses from each @mentioned agent
+        for mentionedAgent in mentionedAgents {
+            // Small delay between agent responses
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
+
+            await generateAndSendAgentResponse(
+                agent: mentionedAgent,
+                userMessage: messageContent,
+                senderName: senderAgent.displayName,
+                conversation: conversation,
+                conversationDetails: conversationDetails,
+                allAgents: allAgents,
+                depth: 1  // Start at depth 1 since this is already a cascade
+            )
+        }
+    }
+
+    /// Load a single conversation by ID
+    private func loadConversation(byId id: UUID) async -> Conversation? {
+        do {
+            let conversations: [Conversation] = try await supabase
+                .from("conversations")
+                .select()
+                .eq("id", value: id.uuidString)
+                .execute()
+                .value
+            return conversations.first
+        } catch {
+            print("❌ Failed to load conversation \(id): \(error.localizedDescription)")
+            return nil
         }
     }
 
