@@ -46,6 +46,11 @@ enum AppTab: String, CaseIterable {
 class AppState: ObservableObject {
     // Well-known agent IDs
     static let stefAgentId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    static let terminalStefId = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+
+    // Agents that should NOT auto-respond via in-app Claude API
+    // (Terminal STEF is controlled by Claude Code, not the app)
+    static let externalAgentIds: Set<UUID> = [terminalStefId]
 
     @Published var selectedTab: AppTab = .messages
     @Published var currentUser: User?
@@ -688,6 +693,9 @@ class AppState: ObservableObject {
                 }
             }
 
+            // Filter out external agents (like Terminal STEF) that don't respond via in-app API
+            agentsToRespond = agentsToRespond.filter { !AppState.externalAgentIds.contains($0.id) }
+
             print("🔍 [AGENT-CHECK] Final agentsToRespond: \(agentsToRespond.map { $0.displayName })")
 
             // Generate responses from mentioned agents
@@ -784,7 +792,8 @@ class AppState: ObservableObject {
             await loadMessages(for: conversationDetails)
 
             // Check if this agent @mentioned other agents - trigger their responses
-            let otherAgents = allAgents.filter { $0.id != agent.id }
+            // Exclude external agents (like Terminal STEF) that respond via Claude Code, not in-app API
+            let otherAgents = allAgents.filter { $0.id != agent.id && !AppState.externalAgentIds.contains($0.id) }
             for otherAgent in otherAgents {
                 if MediatorService.shared.isAgentMentioned(otherAgent, in: response.text) {
                     // Small delay to make conversation feel more natural
