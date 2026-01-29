@@ -933,14 +933,9 @@ class AppState: ObservableObject {
                 print("🧠 [AppState] Sending \(response.crossConversationMessages.count) cross-conversation message(s)")
                 for crossMsg in response.crossConversationMessages {
                     // Skip if targeting the current conversation (redundant - use response.text instead)
+                    // Don't track these agents - they'll be triggered by the cascade from response.text
                     if crossMsg.targetConversationId == conversation.id {
                         print("🧠 [AppState] Skipping cross-conversation to SAME conversation (redundant)")
-                        // Still track agents that would have been triggered
-                        for otherAgent in allAgents where otherAgent.id != agent.id {
-                            if MediatorService.shared.isAgentMentioned(otherAgent, in: crossMsg.content) {
-                                agentsTriggeredViaCrossConversation.insert(otherAgent.id)
-                            }
-                        }
                         continue
                     }
 
