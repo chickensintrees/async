@@ -926,14 +926,36 @@ class AppState: ObservableObject {
             }
 
             // Execute cross-conversation messages (tool use results)
+            // Track agents triggered via cross-conversation to avoid double-triggering in cascade
+            var agentsTriggeredViaCrossConversation: Set<UUID> = []
+
             if !response.crossConversationMessages.isEmpty {
                 print("🧠 [AppState] Sending \(response.crossConversationMessages.count) cross-conversation message(s)")
                 for crossMsg in response.crossConversationMessages {
+                    // Skip if targeting the current conversation (redundant - use response.text instead)
+                    if crossMsg.targetConversationId == conversation.id {
+                        print("🧠 [AppState] Skipping cross-conversation to SAME conversation (redundant)")
+                        // Still track agents that would have been triggered
+                        for otherAgent in allAgents where otherAgent.id != agent.id {
+                            if MediatorService.shared.isAgentMentioned(otherAgent, in: crossMsg.content) {
+                                agentsTriggeredViaCrossConversation.insert(otherAgent.id)
+                            }
+                        }
+                        continue
+                    }
+
                     await sendCrossConversationMessage(
                         from: agent,
                         to: crossMsg.targetConversationId,
                         content: crossMsg.content
                     )
+
+                    // Track agents triggered in cross-conversation messages
+                    for otherAgent in allAgents where otherAgent.id != agent.id {
+                        if MediatorService.shared.isAgentMentioned(otherAgent, in: crossMsg.content) {
+                            agentsTriggeredViaCrossConversation.insert(otherAgent.id)
+                        }
+                    }
                 }
             }
 
@@ -963,7 +985,12 @@ class AppState: ObservableObject {
 
             // Check if this agent @mentioned other agents - trigger their responses
             // Exclude external agents (like Terminal STEF) that respond via Claude Code, not in-app API
-            let otherAgents = allAgents.filter { $0.id != agent.id && !AppState.externalAgentIds.contains($0.id) }
+            // Also exclude agents already triggered via cross-conversation messages (avoid duplicates)
+            let otherAgents = allAgents.filter {
+                $0.id != agent.id &&
+                !AppState.externalAgentIds.contains($0.id) &&
+                !agentsTriggeredViaCrossConversation.contains($0.id)
+            }
             for otherAgent in otherAgents {
                 if MediatorService.shared.isAgentMentioned(otherAgent, in: response.text) {
                     // Small delay to make conversation feel more natural
