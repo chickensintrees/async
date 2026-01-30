@@ -34,3 +34,4 @@ app/build/
 # Multi-agent coordination (local lock files)
 .agent-locks/
 supabase/.temp/
+.ui-captures/

@@ -34,6 +34,12 @@ struct OutboundCrossMessage: Equatable {
 enum KnownConversation {
     /// The Corpus Callosum - inter-hemisphere coordination chat
     static let corpusCallosum = UUID(uuidString: "e53c5600-6650-4520-908e-ddd77be908c8")!
+
+    /// The Green Room - reality show conversation where agents auto-respond
+    static let greenRoom = UUID(uuidString: "81e73a19-d519-47f7-908f-b152d3f37313")!
+
+    /// Conversations where agents auto-respond to any message (not just @mentions)
+    static let autoRespondConversations: Set<UUID> = [greenRoom]
 }
 
 /// Response from agent that may include proposed actions

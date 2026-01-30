@@ -177,6 +177,9 @@ class AppState: ObservableObject {
         // Note: We respond even in the active conversation because STEF should
         // always respond to @mentions. The user will see the response appear naturally.
 
+        // Check if this is an auto-respond conversation (like Green Room) OR if STEF is @mentioned
+        let isAutoRespondConversation = KnownConversation.autoRespondConversations.contains(conversationId)
+
         // Check if App STEF is @mentioned
         let stefUser = User(
             id: AppState.stefAgentId,
@@ -188,12 +191,18 @@ class AppState: ObservableObject {
             createdAt: Date()
         )
 
-        guard MediatorService.shared.isAgentMentioned(stefUser, in: content) else {
-            memoryLog("Realtime", "STEF not @mentioned in: \(content.prefix(50)), skipping")
+        let isMentioned = MediatorService.shared.isAgentMentioned(stefUser, in: content)
+
+        guard isMentioned || isAutoRespondConversation else {
+            memoryLog("Realtime", "STEF not @mentioned and not auto-respond conv: \(content.prefix(50)), skipping")
             return
         }
 
-        memoryLog("Realtime", "✅ STEF @mentioned! Generating autonomous response...")
+        if isAutoRespondConversation {
+            memoryLog("Realtime", "✅ Auto-respond conversation (Green Room)! Generating response...")
+        } else {
+            memoryLog("Realtime", "✅ STEF @mentioned! Generating autonomous response...")
+        }
 
         // Mark as responded (debounce)
         recentlyRespondedMessages.insert(messageId)
@@ -829,16 +838,22 @@ class AppState: ObservableObject {
             print("🔍 [AGENT-CHECK] All agents in system: \(allAgents.map { $0.displayName })")
 
             // Determine which agents to trigger:
-            // 1. In true 1:1 with single agent: that agent always responds
-            // 2. Otherwise: only respond if @mentioned (prevents double-triggers)
+            // 1. In auto-respond conversations (Green Room): all agents respond
+            // 2. In true 1:1 with single agent: that agent always responds
+            // 3. Otherwise: only respond if @mentioned (prevents double-triggers)
+            let isAutoRespondConversation = KnownConversation.autoRespondConversations.contains(conversation.id)
             let isAgentOnlyChat = conversationDetails.participants.allSatisfy { $0.isAgent || $0.id == user.id }
             let agentCount = agentParticipants.count
 
-            print("🔍 [AGENT-CHECK] isAgentOnlyChat=\(isAgentOnlyChat), agentCount=\(agentCount)")
+            print("🔍 [AGENT-CHECK] isAutoRespond=\(isAutoRespondConversation), isAgentOnlyChat=\(isAgentOnlyChat), agentCount=\(agentCount)")
 
             var agentsToRespond: [User] = []
 
-            if isAgentOnlyChat && agentCount == 1 {
+            if isAutoRespondConversation {
+                // Auto-respond conversation (like Green Room) - all agent participants respond
+                print("🔍 [AGENT-CHECK] Path: auto-respond conversation, all agents respond")
+                agentsToRespond = agentParticipants
+            } else if isAgentOnlyChat && agentCount == 1 {
                 // True 1:1 with single agent - always respond
                 print("🔍 [AGENT-CHECK] Path: 1:1 with single agent, auto-responding")
                 agentsToRespond = agentParticipants
@@ -867,6 +882,17 @@ class AppState: ObservableObject {
             agentsToRespond = agentsToRespond.filter { !AppState.externalAgentIds.contains($0.id) }
 
             print("🔍 [AGENT-CHECK] Final agentsToRespond: \(agentsToRespond.map { $0.displayName })")
+
+            // Mark this message as being handled to prevent realtime subscription from double-triggering
+            // The realtime handler checks this set before generating responses
+            if !agentsToRespond.isEmpty {
+                recentlyRespondedMessages.insert(messageId)
+                // Clean up after debounce period
+                Task {
+                    try? await Task.sleep(nanoseconds: UInt64(responseDebounceSeconds * 1_000_000_000))
+                    recentlyRespondedMessages.remove(messageId)
+                }
+            }
 
             // Generate responses from mentioned agents
             for agent in agentsToRespond {
