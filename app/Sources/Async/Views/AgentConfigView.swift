@@ -306,7 +306,8 @@ struct AgentConfigView: View {
     }
 }
 
-#Preview {
-    AgentConfigView()
-        .environmentObject(AppState())
-}
+// Preview disabled - requires Xcode
+// #Preview {
+//     AgentConfigView()
+//         .environmentObject(AppState())
+// }

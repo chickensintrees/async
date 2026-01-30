@@ -104,7 +104,8 @@ struct TestUser: Identifiable {
     let avatarUrl: String
 }
 
-#Preview {
-    UserPickerView()
-        .environmentObject(AppState())
-}
+// Preview disabled - requires Xcode
+// #Preview {
+//     UserPickerView()
+//         .environmentObject(AppState())
+// }

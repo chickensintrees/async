@@ -25,6 +25,8 @@ struct MainView: View {
                 MessagesView()
             case .contacts:
                 ContactsView()
+            case .training:
+                TherapistTrainingView()
             case .dashboard:
                 DashboardView()
             case .backlog:

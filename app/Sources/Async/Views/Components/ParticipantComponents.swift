@@ -274,38 +274,38 @@ struct SearchBar: View {
 }
 
 // MARK: - Previews
-
-#Preview("Agent Badge") {
-    HStack(spacing: 20) {
-        AgentBadge(size: 14)
-        AgentBadge(size: 20)
-        AgentBadge(size: 28)
-    }
-    .padding()
-}
-
-#Preview("User Avatar") {
-    VStack(spacing: 20) {
-        // Human user
-        UserAvatar(
-            user: User(
-                id: UUID(),
-                displayName: "Bill Moore",
-                userType: .human
-            ),
-            size: 44
-        )
-
-        // Agent user
-        UserAvatar(
-            user: User(
-                id: UUID(),
-                displayName: "STEF",
-                userType: .agent,
-                agentMetadata: AgentMetadata(isSystem: true)
-            ),
-            size: 44
-        )
-    }
-    .padding()
-}
+// Preview disabled - requires Xcode
+// #Preview("Agent Badge") {
+//     HStack(spacing: 20) {
+//         AgentBadge(size: 14)
+//         AgentBadge(size: 20)
+//         AgentBadge(size: 28)
+//     }
+//     .padding()
+// }
+//
+// #Preview("User Avatar") {
+//     VStack(spacing: 20) {
+//         // Human user
+//         UserAvatar(
+//             user: User(
+//                 id: UUID(),
+//                 displayName: "Bill Moore",
+//                 userType: .human
+//             ),
+//             size: 44
+//         )
+//
+//         // Agent user
+//         UserAvatar(
+//             user: User(
+//                 id: UUID(),
+//                 displayName: "STEF",
+//                 userType: .agent,
+//                 agentMetadata: AgentMetadata(isSystem: true)
+//             ),
+//             size: 44
+//         )
+//     }
+//     .padding()
+// }

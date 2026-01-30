@@ -28,6 +28,7 @@ enum FilterMode {
 enum AppTab: String, CaseIterable {
     case messages = "Messages"
     case contacts = "Contacts"
+    case training = "Training"
     case dashboard = "Dashboard"
     case backlog = "Backlog"
     case admin = "Admin"
@@ -36,6 +37,7 @@ enum AppTab: String, CaseIterable {
         switch self {
         case .messages: return "message.fill"
         case .contacts: return "person.2.fill"
+        case .training: return "brain.head.profile"
         case .dashboard: return "chart.bar.fill"
         case .backlog: return "list.bullet.rectangle"
         case .admin: return "gearshape.2.fill"
