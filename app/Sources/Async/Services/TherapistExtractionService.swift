@@ -2,18 +2,12 @@ import Foundation
 import Supabase
 
 /// Service for extracting therapeutic patterns from session transcripts using Claude
+/// Patterns are extracted locally and then synced to Supabase
 class TherapistExtractionService {
     static let shared = TherapistExtractionService()
 
     private var apiKey: String?
     private let model = "claude-sonnet-4-20250514"
-
-    private var supabase: SupabaseClient {
-        SupabaseClient(
-            supabaseURL: URL(string: Config.supabaseURL)!,
-            supabaseKey: Config.supabaseAnonKey
-        )
-    }
 
     // MARK: - Errors
 
@@ -21,19 +15,16 @@ class TherapistExtractionService {
         case noAPIKey
         case emptyTranscript
         case extractionFailed(String)
-        case saveFailed(String)
         case invalidResponse
 
         var errorDescription: String? {
             switch self {
             case .noAPIKey:
-                return "No Anthropic API key configured."
+                return "No Anthropic API key configured. Add your key in Settings."
             case .emptyTranscript:
                 return "Transcript is empty."
             case .extractionFailed(let reason):
                 return "Pattern extraction failed: \(reason)"
-            case .saveFailed(let reason):
-                return "Failed to save patterns: \(reason)"
             case .invalidResponse:
                 return "Invalid response from AI."
             }
@@ -73,28 +64,19 @@ class TherapistExtractionService {
 
     // MARK: - Pattern Extraction
 
-    /// Extract therapeutic patterns from a transcript
-    func extractPatterns(from transcript: SessionTranscript, session: TherapySession) async throws -> [TherapistPattern] {
+    /// Extract therapeutic patterns from a local transcript
+    /// The transcript is processed locally; only extracted patterns are synced
+    func extractPatterns(from transcript: LocalTranscript, therapistId: UUID) async throws -> [TherapistPattern] {
         guard let apiKey = apiKey, !apiKey.isEmpty else {
             throw ExtractionError.noAPIKey
         }
 
-        let transcriptText = transcript.fullText
-        guard !transcriptText.isEmpty else {
+        guard !transcript.content.isEmpty else {
             throw ExtractionError.emptyTranscript
         }
 
-        // Build therapist-focused transcript if speaker is identified
-        let focusedText: String
-        if let therapistId = transcript.therapistSpeakerId, let segments = transcript.segments {
-            let therapistSegments = segments.filter { $0.speaker == therapistId }
-            focusedText = therapistSegments.map { $0.text }.joined(separator: "\n\n")
-        } else {
-            focusedText = transcriptText
-        }
-
         let systemPrompt = buildExtractionSystemPrompt()
-        let userPrompt = buildExtractionUserPrompt(transcript: focusedText, session: session)
+        let userPrompt = buildExtractionUserPrompt(transcript: transcript.content)
 
         let requestBody: [String: Any] = [
             "model": model,
@@ -134,85 +116,14 @@ class TherapistExtractionService {
             throw ExtractionError.invalidResponse
         }
 
-        // Parse patterns from response
-        let patterns = parsePatterns(from: text, therapistId: session.therapistId, sessionId: session.id)
-
-        // Save patterns to database
-        for pattern in patterns {
-            try await savePattern(pattern)
-        }
-
-        // Update session status
-        try await updateSessionStatus(session.id, status: .complete)
+        // Parse patterns from response (includes source hash for deduplication)
+        let patterns = parsePatterns(
+            from: text,
+            therapistId: therapistId,
+            sourceHash: transcript.contentHash
+        )
 
         return patterns
-    }
-
-    /// Extract insights from a training document
-    func extractDocumentInsights(from document: TrainingDocument) async throws -> [String: String] {
-        guard let apiKey = apiKey, !apiKey.isEmpty else {
-            throw ExtractionError.noAPIKey
-        }
-
-        let systemPrompt = """
-        You are analyzing a therapeutic document to extract key insights for training an AI assistant.
-        Focus on:
-        - Key therapeutic concepts or approaches mentioned
-        - Specific techniques or strategies
-        - Patient context or background (if applicable)
-        - Goals or treatment directions
-
-        Return a JSON object with relevant insight categories as keys.
-        """
-
-        let userPrompt = """
-        Document Type: \(document.documentType.displayName)
-        Author: \(document.authorType.displayName)
-
-        Content:
-        \(document.content)
-
-        Extract key insights from this document. Return ONLY a JSON object like:
-        {
-            "key_concepts": "...",
-            "techniques": "...",
-            "patient_context": "...",
-            "goals": "..."
-        }
-
-        Only include relevant fields. Return empty object {} if no insights.
-        """
-
-        let requestBody: [String: Any] = [
-            "model": model,
-            "max_tokens": 1024,
-            "temperature": 0.3,
-            "system": systemPrompt,
-            "messages": [["role": "user", "content": userPrompt]]
-        ]
-
-        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
-            throw ExtractionError.extractionFailed("Invalid API URL")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-
-        let (data, _) = try await URLSession.shared.data(for: request)
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = json["content"] as? [[String: Any]],
-              let first = content.first,
-              let text = first["text"] as? String else {
-            throw ExtractionError.invalidResponse
-        }
-
-        // Parse JSON response
-        return parseInsights(from: text)
     }
 
     // MARK: - Prompt Building
@@ -235,18 +146,10 @@ class TherapistExtractionService {
         """
     }
 
-    private func buildExtractionUserPrompt(transcript: String, session: TherapySession) -> String {
-        var prompt = "Analyze this therapy session transcript and extract the therapist's communication patterns.\n\n"
+    private func buildExtractionUserPrompt(transcript: String) -> String {
+        """
+        Analyze this therapy session transcript and extract the therapist's communication patterns.
 
-        if let notes = session.sessionNotes, !notes.isEmpty {
-            prompt += "SESSION NOTES: \(notes)\n\n"
-        }
-
-        if let alias = session.patientAlias {
-            prompt += "PATIENT: \(alias)\n\n"
-        }
-
-        prompt += """
         TRANSCRIPT:
         \(transcript)
 
@@ -264,13 +167,11 @@ class TherapistExtractionService {
         Extract 3-8 patterns. Focus on quality over quantity.
         If the transcript is unclear or too short, return: []
         """
-
-        return prompt
     }
 
     // MARK: - Response Parsing
 
-    private func parsePatterns(from text: String, therapistId: UUID, sessionId: UUID) -> [TherapistPattern] {
+    private func parsePatterns(from text: String, therapistId: UUID, sourceHash: String) -> [TherapistPattern] {
         // Clean response
         var cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleanText.hasPrefix("```") {
@@ -314,66 +215,25 @@ class TherapistExtractionService {
 
             return TherapistPattern(
                 therapistId: therapistId,
-                sessionId: sessionId,
                 patternType: type,
                 category: category,
                 title: title,
                 content: content,
-                confidence: confidence
+                confidence: confidence,
+                sourceHash: sourceHash
             )
         }
     }
 
-    private func parseInsights(from text: String) -> [String: String] {
-        var cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleanText.hasPrefix("```") {
-            if let firstNewline = cleanText.firstIndex(of: "\n") {
-                cleanText = String(cleanText[cleanText.index(after: firstNewline)...])
-            }
-            if cleanText.hasSuffix("```") {
-                cleanText = String(cleanText.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
+    // MARK: - Pattern Loading
 
-        guard let data = cleanText.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-
-        return json
-    }
-
-    // MARK: - Database Operations
-
-    private func savePattern(_ pattern: TherapistPattern) async throws {
-        do {
-            try await supabase
-                .from("therapist_patterns")
-                .insert(pattern)
-                .execute()
-        } catch {
-            throw ExtractionError.saveFailed(error.localizedDescription)
-        }
-    }
-
-    private func updateSessionStatus(_ sessionId: UUID, status: TherapySessionStatus, error: String? = nil) async throws {
-        var updates: [String: String] = [
-            "status": status.rawValue,
-            "updated_at": ISO8601DateFormatter().string(from: Date())
-        ]
-        if let error = error {
-            updates["error_message"] = error
-        }
-
-        try await supabase
-            .from("therapy_sessions")
-            .update(updates)
-            .eq("id", value: sessionId.uuidString)
-            .execute()
-    }
-
-    /// Load all patterns for a therapist
+    /// Load all patterns for a therapist from Supabase
     func loadPatterns(for therapistId: UUID) async throws -> [TherapistPattern] {
+        let supabase = SupabaseClient(
+            supabaseURL: URL(string: Config.supabaseURL)!,
+            supabaseKey: Config.supabaseAnonKey
+        )
+
         let patterns: [TherapistPattern] = try await supabase
             .from("therapist_patterns")
             .select()
@@ -383,47 +243,5 @@ class TherapistExtractionService {
             .value
 
         return patterns
-    }
-
-    /// Load patterns for a specific session
-    func loadPatterns(for sessionId: UUID, therapistId: UUID) async throws -> [TherapistPattern] {
-        let patterns: [TherapistPattern] = try await supabase
-            .from("therapist_patterns")
-            .select()
-            .eq("session_id", value: sessionId.uuidString)
-            .eq("therapist_id", value: therapistId.uuidString)
-            .order("created_at", ascending: false)
-            .execute()
-            .value
-
-        return patterns
-    }
-
-    /// Delete a pattern
-    func deletePattern(_ patternId: UUID) async throws {
-        try await supabase
-            .from("therapist_patterns")
-            .delete()
-            .eq("id", value: patternId.uuidString)
-            .execute()
-    }
-
-    /// Update pattern occurrence count (when pattern is seen again)
-    func incrementPatternCount(_ patternId: UUID) async throws {
-        // Fetch current count
-        let patterns: [TherapistPattern] = try await supabase
-            .from("therapist_patterns")
-            .select()
-            .eq("id", value: patternId.uuidString)
-            .execute()
-            .value
-
-        guard let pattern = patterns.first else { return }
-
-        try await supabase
-            .from("therapist_patterns")
-            .update(["occurrence_count": pattern.occurrenceCount + 1])
-            .eq("id", value: patternId.uuidString)
-            .execute()
     }
 }

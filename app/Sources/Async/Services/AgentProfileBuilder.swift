@@ -1,7 +1,8 @@
 import Foundation
 import Supabase
 
-/// Service for building and rebuilding therapist agent profiles from accumulated training content
+/// Service for building and rebuilding therapist agent profiles from extracted patterns
+/// Only patterns are used - raw content never leaves the device
 class AgentProfileBuilder {
     static let shared = AgentProfileBuilder()
 
@@ -28,7 +29,7 @@ class AgentProfileBuilder {
             case .noAPIKey:
                 return "No Anthropic API key configured."
             case .noPatterns:
-                return "No patterns found for this therapist."
+                return "No patterns found. Extract patterns from transcripts first."
             case .buildFailed(let reason):
                 return "Profile build failed: \(reason)"
             case .saveFailed(let reason):
@@ -68,26 +69,19 @@ class AgentProfileBuilder {
 
     // MARK: - Profile Building
 
-    /// Rebuild the complete agent profile from all accumulated content
-    func rebuildProfile(for therapistId: UUID, therapistName: String, patientProfileId: UUID? = nil) async throws -> TherapistAgentProfile {
+    /// Rebuild the agent profile from all extracted patterns
+    func rebuildProfile(for therapistId: UUID, therapistName: String) async throws -> TherapistAgentProfile {
         // Load all patterns for this therapist
         let patterns = try await loadPatterns(for: therapistId)
 
-        // Load all training documents
-        let documents = try await loadDocuments(for: therapistId, patientProfileId: patientProfileId)
-
-        // Load patient profile if specified
-        var patientProfile: PatientProfile?
-        if let patientId = patientProfileId {
-            patientProfile = try await loadPatientProfile(patientId)
+        guard !patterns.isEmpty else {
+            throw BuilderError.noPatterns
         }
 
-        // Generate the therapist agent profile
+        // Generate the therapist agent profile from patterns
         let profile = try await generateProfile(
             therapistName: therapistName,
-            patterns: patterns,
-            documents: documents,
-            patientProfile: patientProfile
+            patterns: patterns
         )
 
         return profile
@@ -142,17 +136,6 @@ class AgentProfileBuilder {
             """
         }
 
-        if let patientContext = profile.patientContext, !patientContext.isEmpty {
-            prompt += """
-
-            PATIENT CONTEXT:
-            """
-            for (key, value) in patientContext {
-                prompt += "\n- \(key): \(value)"
-            }
-            prompt += "\n"
-        }
-
         prompt += """
 
         RESPONSE GUIDELINES:
@@ -167,13 +150,13 @@ class AgentProfileBuilder {
     }
 
     /// Update agent_configs with the new therapist profile
-    func updateAgentConfig(agentId: UUID, profile: TherapistAgentProfile, sessionIds: [UUID]) async throws {
+    func updateAgentConfig(agentId: UUID, profile: TherapistAgentProfile) async throws {
         let systemPrompt = generateSystemPrompt(from: profile)
 
         let update = TherapistAgentConfigUpdate(
             systemPrompt: systemPrompt,
+            generatedPrompt: systemPrompt,
             therapistProfile: profile,
-            trainingSessions: sessionIds,
             updatedAt: Date()
         )
 
@@ -214,6 +197,7 @@ class AgentProfileBuilder {
         let config = TherapistAgentConfigCreate(
             userId: agentId,
             systemPrompt: "You are a therapeutic assistant. Your profile is being built from training sessions.",
+            generatedPrompt: nil,
             backstory: "Trained on \(therapistName)'s therapy sessions to provide supportive guidance.",
             voiceStyle: "Warm, empathetic, reflective. Matches the therapist's communication style.",
             canInitiate: false,
@@ -237,9 +221,7 @@ class AgentProfileBuilder {
 
     private func generateProfile(
         therapistName: String,
-        patterns: [TherapistPattern],
-        documents: [TrainingDocument],
-        patientProfile: PatientProfile?
+        patterns: [TherapistPattern]
     ) async throws -> TherapistAgentProfile {
         guard let apiKey = apiKey, !apiKey.isEmpty else {
             throw BuilderError.noAPIKey
@@ -248,27 +230,16 @@ class AgentProfileBuilder {
         // Build context from patterns
         let patternContext = buildPatternContext(patterns)
 
-        // Build context from documents
-        let documentContext = buildDocumentContext(documents)
-
-        // Build patient context if available
-        let patientContext = patientProfile != nil ? buildPatientContext(patientProfile!) : nil
-
         let systemPrompt = """
         You are building a profile for a therapeutic AI assistant trained on a specific therapist's style.
-        Synthesize the provided patterns, documents, and context into a coherent profile.
+        Synthesize the provided patterns into a coherent profile.
         """
 
         let userPrompt = """
-        Build a therapeutic assistant profile for \(therapistName) based on this training data:
+        Build a therapeutic assistant profile for \(therapistName) based on these extracted patterns:
 
         EXTRACTED PATTERNS:
         \(patternContext)
-
-        TRAINING DOCUMENTS:
-        \(documentContext)
-
-        \(patientContext != nil ? "PATIENT CONTEXT:\n\(patientContext!)\n" : "")
 
         Return a JSON object with this structure:
         {
@@ -309,10 +280,10 @@ class AgentProfileBuilder {
             throw BuilderError.buildFailed("Invalid API response")
         }
 
-        return parseProfile(from: text, therapistName: therapistName, patientProfile: patientProfile)
+        return parseProfile(from: text, therapistName: therapistName)
     }
 
-    private func parseProfile(from text: String, therapistName: String, patientProfile: PatientProfile?) -> TherapistAgentProfile {
+    private func parseProfile(from text: String, therapistName: String) -> TherapistAgentProfile {
         var cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleanText.hasPrefix("```") {
             if let firstNewline = cleanText.firstIndex(of: "\n") {
@@ -329,34 +300,12 @@ class AgentProfileBuilder {
             return TherapistAgentProfile(therapistName: therapistName)
         }
 
-        // Build patient context dictionary if available
-        var patientContext: [String: String]?
-        if let profile = patientProfile {
-            var context: [String: String] = [:]
-            context["alias"] = profile.alias
-            if let data = profile.profileData {
-                if let issues = data.presentingIssues {
-                    context["presenting_issues"] = issues.joined(separator: ", ")
-                }
-                if let progress = data.progress {
-                    context["progress"] = progress
-                }
-                if let goals = data.goals {
-                    context["goals"] = goals.joined(separator: ", ")
-                }
-            }
-            if !context.isEmpty {
-                patientContext = context
-            }
-        }
-
         return TherapistAgentProfile(
             therapistName: therapistName,
             communicationStyle: json["communication_style"] as? String,
             therapeuticApproach: json["therapeutic_approach"] as? String,
             techniques: json["techniques"] as? [String],
-            boundaries: json["boundaries"] as? [String],
-            patientContext: patientContext
+            boundaries: json["boundaries"] as? [String]
         )
     }
 
@@ -384,49 +333,6 @@ class AgentProfileBuilder {
         return context
     }
 
-    private func buildDocumentContext(_ documents: [TrainingDocument]) -> String {
-        if documents.isEmpty {
-            return "No additional documents."
-        }
-
-        var context = ""
-        for doc in documents.prefix(5) {  // Limit documents
-            context += "\n[\(doc.documentType.displayName.uppercased())]"
-            if let title = doc.title {
-                context += " - \(title)"
-            }
-            context += "\n"
-            context += String(doc.content.prefix(500))  // Truncate content
-            if doc.content.count > 500 {
-                context += "..."
-            }
-            context += "\n"
-        }
-
-        return context
-    }
-
-    private func buildPatientContext(_ profile: PatientProfile) -> String {
-        var context = "Patient: \(profile.alias)\n"
-
-        if let data = profile.profileData {
-            if let issues = data.presentingIssues, !issues.isEmpty {
-                context += "Presenting Issues: \(issues.joined(separator: ", "))\n"
-            }
-            if let progress = data.progress {
-                context += "Progress: \(progress)\n"
-            }
-            if let techniques = data.techniquesTried, !techniques.isEmpty {
-                context += "Techniques Tried: \(techniques.joined(separator: ", "))\n"
-            }
-            if let goals = data.goals, !goals.isEmpty {
-                context += "Goals: \(goals.joined(separator: ", "))\n"
-            }
-        }
-
-        return context
-    }
-
     // MARK: - Data Loading
 
     private func loadPatterns(for therapistId: UUID) async throws -> [TherapistPattern] {
@@ -440,53 +346,6 @@ class AgentProfileBuilder {
 
         return patterns
     }
-
-    private func loadDocuments(for therapistId: UUID, patientProfileId: UUID?) async throws -> [TrainingDocument] {
-        var query = supabase
-            .from("training_documents")
-            .select()
-            .eq("therapist_id", value: therapistId.uuidString)
-
-        if let patientId = patientProfileId {
-            // Include both therapist-wide docs and patient-specific docs
-            query = supabase
-                .from("training_documents")
-                .select()
-                .eq("therapist_id", value: therapistId.uuidString)
-                .or("patient_profile_id.is.null,patient_profile_id.eq.\(patientId.uuidString)")
-        }
-
-        let documents: [TrainingDocument] = try await query
-            .order("created_at", ascending: false)
-            .execute()
-            .value
-
-        return documents
-    }
-
-    private func loadPatientProfile(_ profileId: UUID) async throws -> PatientProfile? {
-        let profiles: [PatientProfile] = try await supabase
-            .from("patient_profiles")
-            .select()
-            .eq("id", value: profileId.uuidString)
-            .execute()
-            .value
-
-        return profiles.first
-    }
-
-    /// Load all session IDs used for training
-    func loadTrainingSessionIds(for therapistId: UUID) async throws -> [UUID] {
-        let sessions: [TherapySession] = try await supabase
-            .from("therapy_sessions")
-            .select()
-            .eq("therapist_id", value: therapistId.uuidString)
-            .eq("status", value: TherapySessionStatus.complete.rawValue)
-            .execute()
-            .value
-
-        return sessions.map { $0.id }
-    }
 }
 
 // MARK: - Helper Structs for Encoding
@@ -494,14 +353,14 @@ class AgentProfileBuilder {
 /// Update struct for therapist agent config
 struct TherapistAgentConfigUpdate: Encodable {
     let systemPrompt: String
+    let generatedPrompt: String
     let therapistProfile: TherapistAgentProfile
-    let trainingSessions: [UUID]
     let updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
         case systemPrompt = "system_prompt"
+        case generatedPrompt = "generated_prompt"
         case therapistProfile = "therapist_profile"
-        case trainingSessions = "training_sessions"
         case updatedAt = "updated_at"
     }
 }
@@ -529,6 +388,7 @@ struct TherapistAgentUser: Encodable {
 struct TherapistAgentConfigCreate: Encodable {
     let userId: UUID
     let systemPrompt: String
+    let generatedPrompt: String?
     let backstory: String
     let voiceStyle: String
     let canInitiate: Bool
@@ -542,6 +402,7 @@ struct TherapistAgentConfigCreate: Encodable {
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
         case systemPrompt = "system_prompt"
+        case generatedPrompt = "generated_prompt"
         case backstory
         case voiceStyle = "voice_style"
         case canInitiate = "can_initiate"
