@@ -1,34 +1,36 @@
 import SwiftUI
-import Supabase
 import UniformTypeIdentifiers
 
-/// View for creating a new training document
+/// View for loading a transcript and extracting patterns locally
+/// Raw content never leaves the device - only extracted patterns sync to Supabase
 struct DocumentUploadView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) var dismiss
 
-    let onComplete: (TrainingDocument) -> Void
+    let onComplete: ([TherapistPattern]) -> Void
 
-    @State private var documentType: TrainingDocumentType = .sessionTranscript
-    @State private var authorType: AuthorType = .session
     @State private var title = ""
     @State private var content = ""
-    @State private var selectedPatientId: UUID?
-
-    @State private var patientProfiles: [PatientProfile] = []
-    @State private var isSaving = false
-    @State private var errorMessage: String?
     @State private var loadedFileName: String?
 
-    private var canSave: Bool {
-        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSaving
+    @State private var isExtracting = false
+    @State private var extractedPatterns: [TherapistPattern] = []
+    @State private var showingPreview = false
+    @State private var errorMessage: String?
+
+    private var canExtract: Bool {
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isExtracting
+    }
+
+    private var wordCount: Int {
+        content.split(separator: " ").count
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Add Training Document")
+                Text("Extract Patterns from Transcript")
                     .font(.headline)
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -38,326 +40,271 @@ struct DocumentUploadView: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Document Type
-                    GroupBox("Document Type") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            // Author type
-                            HStack {
-                                Text("Author:")
-                                    .frame(width: 80, alignment: .trailing)
-                                Picker("", selection: $authorType) {
-                                    ForEach(AuthorType.allCases, id: \.self) { type in
-                                        Text(type.displayName).tag(type)
-                                    }
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.segmented)
-                                .frame(width: 200)
-                                Spacer()
-                            }
-
-                            // Document type based on author
-                            HStack {
-                                Text("Type:")
-                                    .frame(width: 80, alignment: .trailing)
-                                Picker("", selection: $documentType) {
-                                    ForEach(documentTypesForAuthor, id: \.self) { type in
-                                        Label(type.displayName, systemImage: type.icon).tag(type)
-                                    }
-                                }
-                                .labelsHidden()
-                                .frame(width: 200)
-                                Spacer()
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-
-                    // Patient Association (optional)
-                    if !patientProfiles.isEmpty {
-                        GroupBox("Patient (Optional)") {
-                            HStack {
-                                Picker("", selection: $selectedPatientId) {
-                                    Text("None - General Training").tag(nil as UUID?)
-                                    ForEach(patientProfiles) { profile in
-                                        Text(profile.alias).tag(profile.id as UUID?)
-                                    }
-                                }
-                                .labelsHidden()
-                                Spacer()
-                            }
-
-                            Text("Associate with a specific patient or leave as general training content.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    // Content
-                    GroupBox("Content") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("Title (optional):")
-                                TextField("", text: $title)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            // File upload zone
-                            VStack(spacing: 12) {
-                                if let fileName = loadedFileName {
-                                    // File loaded indicator
-                                    HStack {
-                                        Image(systemName: "doc.text.fill")
-                                            .foregroundColor(.green)
-                                        Text(fileName)
-                                            .font(.system(size: 13, weight: .medium))
-                                        Spacer()
-                                        Button(action: clearFile) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                    .padding(10)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.green.opacity(0.1))
-                                    )
-                                } else {
-                                    // Drop zone
-                                    FileDropZone(onFileDrop: loadFile)
-                                        .frame(height: 80)
-                                }
-
-                                // Or divider
-                                HStack {
-                                    Rectangle()
-                                        .fill(Color.gray.opacity(0.3))
-                                        .frame(height: 1)
-                                    Text("or paste text")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    Rectangle()
-                                        .fill(Color.gray.opacity(0.3))
-                                        .frame(height: 1)
-                                }
-
-                                // Text editor
-                                TextEditor(text: $content)
-                                    .font(.body)
-                                    .frame(minHeight: 150)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                                    )
-                            }
-
-                            Text(contentHint)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-
-                    // Tips
-                    GroupBox("Tips") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            tipRow(icon: "lightbulb", text: "Include specific examples from your practice")
-                            tipRow(icon: "person.2", text: "Describe your typical communication style")
-                            tipRow(icon: "list.bullet", text: "Document techniques that work well for you")
-                            tipRow(icon: "quote.bubble", text: "Include actual phrases you commonly use")
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-                .padding()
+            if showingPreview {
+                // Pattern preview
+                patternPreviewSection
+            } else {
+                // Content input
+                contentInputSection
             }
 
             Divider()
 
             // Footer
-            HStack {
-                if let error = errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
+            footerSection
+        }
+        .frame(width: 650, height: 700)
+    }
 
-                Spacer()
+    // MARK: - Content Input Section
 
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.escape)
+    private var contentInputSection: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Privacy notice
+                GroupBox {
+                    HStack(spacing: 12) {
+                        Image(systemName: "lock.shield")
+                            .font(.title2)
+                            .foregroundColor(.green)
 
-                Button(action: saveDocument) {
-                    if isSaving {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 60)
-                    } else {
-                        Text("Save")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Local Processing Only")
+                                .font(.headline)
+                            Text("Your transcript stays on this device. Only extracted patterns are synced to train your AI agent.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSave)
-                .keyboardShortcut(.return)
+
+                // Content
+                GroupBox("Transcript") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Title (optional):")
+                            TextField("Session name", text: $title)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        // File upload zone
+                        VStack(spacing: 12) {
+                            if let fileName = loadedFileName {
+                                // File loaded indicator
+                                HStack {
+                                    Image(systemName: "doc.text.fill")
+                                        .foregroundColor(.green)
+                                    Text(fileName)
+                                        .font(.system(size: 13, weight: .medium))
+                                    Spacer()
+                                    Text("\(wordCount) words")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Button(action: clearFile) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.green.opacity(0.1))
+                                )
+                            } else {
+                                // Drop zone
+                                FileDropZone(onFileDrop: loadFile)
+                                    .frame(height: 80)
+                            }
+
+                            // Or divider
+                            HStack {
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.3))
+                                    .frame(height: 1)
+                                Text("or paste text")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.3))
+                                    .frame(height: 1)
+                            }
+
+                            // Text editor
+                            TextEditor(text: $content)
+                                .font(.body)
+                                .frame(minHeight: 200)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                )
+
+                            if !content.isEmpty {
+                                HStack {
+                                    Spacer()
+                                    Text("\(wordCount) words")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+
+                        Text("Paste a session transcript with speaker labels (e.g., 'Therapist:', 'Patient:')")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                // What will be extracted
+                GroupBox("What Gets Extracted") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        extractionRow(icon: "wand.and.stars", type: "Techniques", desc: "Therapeutic methods and approaches you use")
+                        extractionRow(icon: "text.quote", type: "Phrases", desc: "Specific language patterns and expressions")
+                        extractionRow(icon: "bubble.left.and.text.bubble.right", type: "Response Styles", desc: "How you respond to different situations")
+                    }
+                    .padding(.vertical, 4)
+                }
             }
             .padding()
         }
-        .frame(width: 600, height: 700)
-        .task {
-            await loadPatientProfiles()
-        }
-        .onChange(of: authorType) { _, newValue in
-            // Reset document type when author changes
-            switch newValue {
-            case .session:
-                documentType = .sessionTranscript
-            case .therapist:
-                if !TrainingDocumentType.therapistTypes.contains(documentType) {
-                    documentType = .caseNote
+    }
+
+    // MARK: - Pattern Preview Section
+
+    private var patternPreviewSection: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Summary
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.title2)
+                    VStack(alignment: .leading) {
+                        Text("Extracted \(extractedPatterns.count) patterns")
+                            .font(.headline)
+                        Text("Review and confirm to sync to your AI agent")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
                 }
-            case .patient:
-                if !TrainingDocumentType.patientTypes.contains(documentType) {
-                    documentType = .selfDescription
+                .padding()
+                .background(Color.green.opacity(0.1))
+                .cornerRadius(8)
+
+                // Pattern list
+                ForEach(extractedPatterns) { pattern in
+                    patternCard(pattern)
                 }
             }
+            .padding()
         }
     }
 
-    // MARK: - Computed Properties
+    private func patternCard(_ pattern: TherapistPattern) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: pattern.patternType.icon)
+                        .foregroundColor(.accentColor)
+                    Text(pattern.title)
+                        .font(.headline)
+                    Spacer()
+                    if let category = pattern.category {
+                        Text(category.displayName)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.2))
+                            .cornerRadius(4)
+                    }
+                }
 
-    private var documentTypesForAuthor: [TrainingDocumentType] {
-        switch authorType {
-        case .session:
-            return TrainingDocumentType.sessionTypes
-        case .therapist:
-            return TrainingDocumentType.therapistTypes
-        case .patient:
-            return TrainingDocumentType.patientTypes
+                Text(pattern.content)
+                    .font(.body)
+                    .foregroundColor(.secondary)
+
+                HStack {
+                    Text(pattern.patternType.displayName)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if let conf = pattern.confidence {
+                        Text("Confidence: \(Int(conf * 100))%")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 
-    private var contentHint: String {
-        switch documentType {
-        case .sessionTranscript:
-            return "Paste a full session transcript. Include speaker labels if available (e.g., 'Therapist:', 'Patient:')."
-        case .caseNote:
-            return "Document observations, treatment progress, or session notes."
-        case .treatmentPlan:
-            return "Outline treatment goals, strategies, and timeline."
-        case .approach:
-            return "Describe your therapeutic approach and methodology."
-        case .selfDescription:
-            return "Describe the patient's background, situation, and perspective."
-        case .goal:
-            return "Document specific goals and desired outcomes."
-        case .journal:
-            return "Record thoughts, reflections, or daily experiences."
-        case .musing:
-            return "Capture random thoughts or insights about the therapeutic process."
+    // MARK: - Footer
+
+    private var footerSection: some View {
+        HStack {
+            if let error = errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+
+            Spacer()
+
+            if showingPreview {
+                Button("Back") {
+                    showingPreview = false
+                }
+
+                Button(action: syncPatterns) {
+                    if isExtracting {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 100)
+                    } else {
+                        Text("Sync \(extractedPatterns.count) Patterns")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isExtracting || extractedPatterns.isEmpty)
+            } else {
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.escape)
+
+                Button(action: extractPatterns) {
+                    if isExtracting {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 100)
+                    } else {
+                        Text("Extract Patterns")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canExtract)
+                .keyboardShortcut(.return)
+            }
         }
+        .padding()
     }
 
     // MARK: - Helpers
 
-    private func tipRow(icon: String, text: String) -> some View {
-        HStack(spacing: 8) {
+    private func extractionRow(icon: String, type: String, desc: String) -> some View {
+        HStack(spacing: 12) {
             Image(systemName: icon)
                 .foregroundColor(.accentColor)
-                .frame(width: 20)
-            Text(text)
-                .font(.caption)
-        }
-    }
-
-    // MARK: - Data Loading
-
-    private func loadPatientProfiles() async {
-        guard let userId = appState.currentUser?.id else { return }
-
-        do {
-            let supabase = SupabaseClient(
-                supabaseURL: URL(string: Config.supabaseURL)!,
-                supabaseKey: Config.supabaseAnonKey
-            )
-
-            patientProfiles = try await supabase
-                .from("patient_profiles")
-                .select()
-                .eq("therapist_id", value: userId.uuidString)
-                .order("alias")
-                .execute()
-                .value
-        } catch {
-            print("Failed to load patient profiles: \(error)")
-        }
-    }
-
-    // MARK: - Save
-
-    private func saveDocument() {
-        guard let userId = appState.currentUser?.id else { return }
-
-        isSaving = true
-        errorMessage = nil
-
-        Task {
-            do {
-                let document = TrainingDocument(
-                    therapistId: userId,
-                    patientProfileId: selectedPatientId,
-                    authorType: authorType,
-                    documentType: documentType,
-                    title: title.isEmpty ? nil : title,
-                    content: content
-                )
-
-                let supabase = SupabaseClient(
-                    supabaseURL: URL(string: Config.supabaseURL)!,
-                    supabaseKey: Config.supabaseAnonKey
-                )
-
-                try await supabase
-                    .from("training_documents")
-                    .insert(document)
-                    .execute()
-
-                // Process document for insights
-                let docId = document.id
-                Task.detached {
-                    do {
-                        let insights = try await TherapistExtractionService.shared.extractDocumentInsights(from: document)
-                        if !insights.isEmpty {
-                            // Update document with insights
-                            let updateClient = SupabaseClient(
-                                supabaseURL: URL(string: Config.supabaseURL)!,
-                                supabaseKey: Config.supabaseAnonKey
-                            )
-                            let update = TrainingDocumentInsightsUpdate(
-                                extractedInsights: insights,
-                                status: TrainingDocumentStatus.processed.rawValue
-                            )
-                            try await updateClient
-                                .from("training_documents")
-                                .update(update)
-                                .eq("id", value: docId.uuidString)
-                                .execute()
-                        }
-                    } catch {
-                        print("Failed to extract insights: \(error)")
-                    }
-                }
-
-                await MainActor.run {
-                    onComplete(document)
-                }
-            } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    isSaving = false
-                }
+                .frame(width: 24)
+            VStack(alignment: .leading) {
+                Text(type)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Text(desc)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -366,7 +313,6 @@ struct DocumentUploadView: View {
 
     private func loadFile(_ url: URL) {
         do {
-            // Start accessing security-scoped resource
             let accessing = url.startAccessingSecurityScopedResource()
             defer {
                 if accessing {
@@ -378,10 +324,8 @@ struct DocumentUploadView: View {
             content = fileContent
             loadedFileName = url.lastPathComponent
 
-            // Auto-set title from filename if empty
             if title.isEmpty {
-                let name = url.deletingPathExtension().lastPathComponent
-                title = name
+                title = url.deletingPathExtension().lastPathComponent
             }
         } catch {
             errorMessage = "Failed to read file: \(error.localizedDescription)"
@@ -391,6 +335,73 @@ struct DocumentUploadView: View {
     private func clearFile() {
         loadedFileName = nil
         content = ""
+    }
+
+    // MARK: - Extraction
+
+    private func extractPatterns() {
+        guard let userId = appState.currentUser?.id else {
+            errorMessage = "Please log in first"
+            return
+        }
+
+        isExtracting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                // Create local transcript (never persisted)
+                let transcript = LocalTranscript(content: content, filename: loadedFileName)
+
+                // Check for duplicates
+                let alreadyExtracted = await appState.hasExtractedFrom(contentHash: transcript.contentHash)
+                if alreadyExtracted {
+                    await MainActor.run {
+                        errorMessage = "Patterns have already been extracted from this content"
+                        isExtracting = false
+                    }
+                    return
+                }
+
+                // Extract patterns locally
+                let patterns = try await TherapistExtractionService.shared.extractPatterns(
+                    from: transcript,
+                    therapistId: userId
+                )
+
+                await MainActor.run {
+                    extractedPatterns = patterns
+                    showingPreview = true
+                    isExtracting = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Extraction failed: \(error.localizedDescription)"
+                    isExtracting = false
+                }
+            }
+        }
+    }
+
+    private func syncPatterns() {
+        isExtracting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                // Sync patterns to Supabase
+                try await appState.syncPatterns(extractedPatterns)
+
+                await MainActor.run {
+                    onComplete(extractedPatterns)
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Sync failed: \(error.localizedDescription)"
+                    isExtracting = false
+                }
+            }
+        }
     }
 }
 
@@ -454,22 +465,3 @@ struct FileDropZone: View {
         }
     }
 }
-
-// MARK: - Helper Structs
-
-/// Encodable struct for updating document insights
-struct TrainingDocumentInsightsUpdate: Encodable {
-    let extractedInsights: [String: String]
-    let status: String
-
-    enum CodingKeys: String, CodingKey {
-        case extractedInsights = "extracted_insights"
-        case status
-    }
-}
-
-// Preview disabled - requires Xcode
-// #Preview {
-//     DocumentUploadView(onComplete: { _ in })
-//         .environmentObject(AppState())
-// }

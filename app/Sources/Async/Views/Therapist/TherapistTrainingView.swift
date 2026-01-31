@@ -1,21 +1,21 @@
 import SwiftUI
 
 /// Main hub view for therapist agent training feature
-/// Provides tab-based navigation to sessions, documents, patterns, and agent chat
+/// Provides tab-based navigation to extract patterns, view patterns, and chat with agent
 struct TherapistTrainingView: View {
     @EnvironmentObject var appState: AppState
-    @State private var selectedTab: TrainingTab = .sessions
+    @State private var selectedTab: TrainingTab = .extract
+    @State private var showingUploadSheet = false
+    @State private var patternCount = 0
 
     enum TrainingTab: String, CaseIterable {
-        case sessions = "Sessions"
-        case documents = "Documents"
+        case extract = "Extract"
         case patterns = "Patterns"
         case agent = "Agent"
 
         var icon: String {
             switch self {
-            case .sessions: return "waveform"
-            case .documents: return "doc.text"
+            case .extract: return "doc.text.magnifyingglass"
             case .patterns: return "sparkles"
             case .agent: return "bubble.left.and.bubble.right"
             }
@@ -30,7 +30,8 @@ struct TherapistTrainingView: View {
                     TabButton(
                         title: tab.rawValue,
                         icon: tab.icon,
-                        isSelected: selectedTab == tab
+                        isSelected: selectedTab == tab,
+                        badge: tab == .patterns ? patternCount : nil
                     ) {
                         selectedTab = tab
                     }
@@ -45,12 +46,17 @@ struct TherapistTrainingView: View {
             // Content
             Group {
                 switch selectedTab {
-                case .sessions:
-                    SessionListView()
-                case .documents:
-                    DocumentListView()
+                case .extract:
+                    ExtractView(
+                        onExtracted: { patterns in
+                            patternCount += patterns.count
+                            selectedTab = .patterns
+                        }
+                    )
                 case .patterns:
-                    PatternsListView()
+                    PatternsListView(onPatternCountChanged: { count in
+                        patternCount = count
+                    })
                 case .agent:
                     TherapistAgentView()
                 }
@@ -58,6 +64,9 @@ struct TherapistTrainingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 600, minHeight: 400)
+        .task {
+            patternCount = await appState.getPatternCount()
+        }
     }
 }
 
@@ -67,6 +76,7 @@ struct TabButton: View {
     let title: String
     let icon: String
     let isSelected: Bool
+    var badge: Int? = nil
     let action: () -> Void
 
     var body: some View {
@@ -76,6 +86,15 @@ struct TabButton: View {
                     .font(.system(size: 12))
                 Text(title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+
+                if let badge = badge, badge > 0 {
+                    Text("\(badge)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.accentColor))
+                }
             }
             .foregroundColor(isSelected ? .accentColor : .secondary)
             .padding(.horizontal, 12)
@@ -89,6 +108,66 @@ struct TabButton: View {
     }
 }
 
+// MARK: - Extract View
+
+struct ExtractView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showingUploadSheet = false
+    let onExtracted: ([TherapistPattern]) -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // Icon
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 64))
+                .foregroundColor(.accentColor)
+
+            // Title
+            Text("Extract Patterns from Transcripts")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            // Description
+            Text("Load a therapy session transcript to extract communication patterns.\nYour transcript stays on this device - only extracted patterns are synced.")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: 400)
+
+            // Privacy badge
+            HStack(spacing: 8) {
+                Image(systemName: "lock.shield.fill")
+                    .foregroundColor(.green)
+                Text("Local Processing")
+                    .font(.caption)
+                    .foregroundColor(.green)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.green.opacity(0.1))
+            .cornerRadius(16)
+
+            // Upload button
+            Button(action: { showingUploadSheet = true }) {
+                Label("Load Transcript", systemImage: "plus.circle.fill")
+                    .font(.headline)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showingUploadSheet) {
+            DocumentUploadView { patterns in
+                showingUploadSheet = false
+                onExtracted(patterns)
+            }
+        }
+    }
+}
+
 // MARK: - Patterns List View
 
 struct PatternsListView: View {
@@ -97,6 +176,7 @@ struct PatternsListView: View {
     @State private var isLoading = true
     @State private var selectedPattern: TherapistPattern?
     @State private var filterType: PatternType?
+    let onPatternCountChanged: (Int) -> Void
 
     var filteredPatterns: [TherapistPattern] {
         if let type = filterType {
@@ -137,7 +217,7 @@ struct PatternsListView: View {
                         .foregroundColor(.secondary)
                     Text("No Patterns Yet")
                         .font(.headline)
-                    Text("Upload and process therapy sessions to extract patterns.")
+                    Text("Extract patterns from therapy session transcripts.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -172,6 +252,7 @@ struct PatternsListView: View {
         isLoading = true
         do {
             patterns = try await TherapistExtractionService.shared.loadPatterns(for: userId)
+            onPatternCountChanged(patterns.count)
         } catch {
             print("Failed to load patterns: \(error)")
         }
@@ -298,10 +379,3 @@ struct PatternDetailView: View {
         .frame(minWidth: 300)
     }
 }
-
-// Preview disabled - requires Xcode
-// #Preview {
-//     TherapistTrainingView()
-//         .environmentObject(AppState())
-//         .frame(width: 900, height: 600)
-// }

@@ -63,10 +63,9 @@ struct TherapistAgentView: View {
                 .frame(maxWidth: 400)
 
             VStack(alignment: .leading, spacing: 8) {
-                stepRow(number: 1, text: "Upload therapy session recordings")
-                stepRow(number: 2, text: "Import or generate transcripts")
-                stepRow(number: 3, text: "Extract communication patterns")
-                stepRow(number: 4, text: "Build your personalized agent")
+                stepRow(number: 1, text: "Load a therapy session transcript")
+                stepRow(number: 2, text: "Extract communication patterns")
+                stepRow(number: 3, text: "Build your personalized agent")
             }
             .padding()
             .background(
@@ -412,8 +411,6 @@ struct AgentSetupSheet: View {
 
     @State private var isBuilding = false
     @State private var patternCount = 0
-    @State private var documentCount = 0
-    @State private var sessionCount = 0
     @State private var errorMessage: String?
 
     var body: some View {
@@ -434,19 +431,17 @@ struct AgentSetupSheet: View {
                 // Training data summary
                 GroupBox("Training Data") {
                     VStack(alignment: .leading, spacing: 12) {
-                        statRow(icon: "waveform", label: "Sessions", count: sessionCount)
-                        statRow(icon: "sparkles", label: "Patterns", count: patternCount)
-                        statRow(icon: "doc.text", label: "Documents", count: documentCount)
+                        statRow(icon: "sparkles", label: "Extracted Patterns", count: patternCount)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
                 }
 
-                if patternCount == 0 && documentCount == 0 {
+                if patternCount == 0 {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(.orange)
-                        Text("No training data found. Upload sessions or documents first.")
+                        Text("No patterns found. Extract patterns from transcripts first.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -458,7 +453,7 @@ struct AgentSetupSheet: View {
                 }
 
                 // Build info
-                Text("Building the agent will analyze all your training data and create a personalized AI assistant that responds in your therapeutic style.")
+                Text("Building the agent will synthesize your extracted patterns into a personalized AI assistant that responds in your therapeutic style.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -491,11 +486,11 @@ struct AgentSetupSheet: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isBuilding || (patternCount == 0 && documentCount == 0))
+                .disabled(isBuilding || patternCount == 0)
             }
             .padding()
         }
-        .frame(width: 450, height: 400)
+        .frame(width: 450, height: 350)
         .task {
             await loadStats()
         }
@@ -523,14 +518,6 @@ struct AgentSetupSheet: View {
         )
 
         do {
-            let sessions: [TherapySession] = try await supabase
-                .from("therapy_sessions")
-                .select()
-                .eq("therapist_id", value: userId.uuidString)
-                .execute()
-                .value
-            sessionCount = sessions.count
-
             let patterns: [TherapistPattern] = try await supabase
                 .from("therapist_patterns")
                 .select()
@@ -538,14 +525,6 @@ struct AgentSetupSheet: View {
                 .execute()
                 .value
             patternCount = patterns.count
-
-            let documents: [TrainingDocument] = try await supabase
-                .from("training_documents")
-                .select()
-                .eq("therapist_id", value: userId.uuidString)
-                .execute()
-                .value
-            documentCount = documents.count
         } catch {
             print("Failed to load stats: \(error)")
         }
